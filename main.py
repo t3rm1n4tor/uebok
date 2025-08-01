@@ -1,6 +1,7 @@
 import os
 import random
 import time
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, 
@@ -14,6 +15,8 @@ from datetime import datetime, timedelta
 user_balances = {}
 active_games = {}
 free_cooldowns = {}  # Track when users last used /free command
+farm_values = {}  # Track farm values for users
+farm_cooldowns = {}  # Track farm cooldowns
 
 # Game configuration
 MIN_BET = 5
@@ -21,7 +24,10 @@ TOTAL_TILES = 25
 FREE_COINS = 25
 ROWS = 5
 COLS = 5
-FREE_COOLDOWN_HOURS = 0.2
+FREE_COOLDOWN_MINUTES = 25
+FARM_COOLDOWN_MINUTES = 200
+FARM_STARTING_VALUE = 5
+FARM_FAIL_CHANCE = 10  # Percentage chance of failing
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -30,13 +36,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_balances[user_id] = 0
     
     await update.message.reply_text(
-        f"🎮 *Добро пожаловать в игру мины, {user_name}!* 🎮\n\n"
+        f"🎮 *Добро пожаловать в игровой бот минки, {user_name}!* 🎮\n\n"
         f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
         "📋 *Доступные команды:*\n"
-        "▫️ /free - Получить 10 ktn$ бесплатно (раз в 2 часа)\n"
-        "▫️ /mines [кол-во_мин] [ставка] - Играть в минки\n"
-        "▫️ /balance - Проверить баланс\n\n"
-        "🎯 *НЕудачной игры!*",
+        "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
+        "▫️ /mines [кол-во_мин] [ставка] - Играть в мины\n"
+        "▫️ /farm - Фармить ktn$ (ферма ктн)\n"
+        "▫️ /balance - Проверить баланс\n"
+        "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
+        "🎯 *Удачной игры!*",
         parse_mode="Markdown"
     )
 
@@ -51,14 +59,15 @@ async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in free_cooldowns:
         last_free_time = free_cooldowns[user_id]
         time_since_last = current_time - last_free_time
-        cooldown_time = timedelta(hours=FREE_COOLDOWN_HOURS)
+        cooldown_time = timedelta(minutes=FREE_COOLDOWN_MINUTES)
         
         if time_since_last < cooldown_time:
             remaining = cooldown_time - time_since_last
             minutes = int(remaining.total_seconds() // 60)
+            seconds = int(remaining.total_seconds() % 60)
             
             await update.message.reply_text(
-                f"⏳ *Подождите!* Вы сможете получить бесплатные ктны через *{minutes} минут*\n\n"
+                f"⏳ *Подождите!* Вы сможете получить бесплатные ктны через *{minutes} мин. {seconds} сек.*\n\n"
                 f"Текущий баланс: *{user_balances[user_id]} ktn$*",
                 parse_mode="Markdown"
             )
@@ -71,9 +80,77 @@ async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💸 *Поздравляем!* Вы получили *{FREE_COINS} ktn$*!\n\n"
         f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-        f"⏰ Следующие бесплатные ктны будут доступны через *{FREE_COOLDOWN_HOURS} часа*",
+        f"⏰ Следующие бесплатные ктны будут доступны через *{FREE_COOLDOWN_MINUTES} минут*.",
         parse_mode="Markdown"
     )
+
+async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    current_time = datetime.now()
+    
+    if user_id not in user_balances:
+        user_balances[user_id] = 0
+        
+    if user_id not in farm_values:
+        farm_values[user_id] = FARM_STARTING_VALUE
+    
+    # Check cooldown
+    if user_id in farm_cooldowns:
+        last_farm_time = farm_cooldowns[user_id]
+        time_since_last = current_time - last_farm_time
+        cooldown_time = timedelta(minutes=FARM_COOLDOWN_MINUTES)
+        
+        if time_since_last < cooldown_time:
+            remaining = cooldown_time - time_since_last
+            minutes = int(remaining.total_seconds() // 60)
+            seconds = int(remaining.total_seconds() % 60)
+            
+            await update.message.reply_text(
+                f"🌱 *Ваша ферма ещё растёт!*\n\n"
+                f"⏳ Следующий сбор урожая через *{minutes} мин. {seconds} сек.*\n"
+                f"🌾 Ожидаемый урожай: *{farm_values[user_id]} ktn$*\n\n"
+                f"💰 Текущий баланс: *{user_balances[user_id]} ktn$*",
+                parse_mode="Markdown"
+            )
+            return
+    
+    # Check for failure
+    fail = random.randint(1, 100) <= FARM_FAIL_CHANCE
+    
+    if fail:
+        # Farming failed
+        farm_cooldowns[user_id] = current_time
+        next_value = round(farm_values[user_id] * 1.5)
+        
+        await update.message.reply_text(
+            f"❌ *Неудача!* Ваш урожай затоптали 😭.\n\n"
+            f"🌱 Но не расстраивайтесь, следующий урожай будет ещё больше!\n"
+            f"🌾 Следующий ожидаемый урожай: *{next_value} ktn$*\n\n"
+            f"⏰ Приходите через *{FARM_COOLDOWN_MINUTES} минут*\n"
+            f"💰 Текущий баланс: *{user_balances[user_id]} ktn$*",
+            parse_mode="Markdown"
+        )
+        
+        # Update farm value
+        farm_values[user_id] = next_value
+    else:
+        # Farming succeeded
+        current_value = farm_values[user_id]
+        user_balances[user_id] += current_value
+        farm_cooldowns[user_id] = current_time
+        next_value = round(current_value * 1.5)
+        
+        await update.message.reply_text(
+            f"✅ *Успех!* Вы собрали *{current_value} ktn$* с вашей фермы!\n\n"
+            f"🌱 Ваша ферма растёт!\n"
+            f"🌾 Следующий ожидаемый урожай: *{next_value} ktn$*\n\n"
+            f"⏰ Приходите через *{FARM_COOLDOWN_MINUTES} минут*\n"
+            f"💰 Текущий баланс: *{user_balances[user_id]} ktn$*",
+            parse_mode="Markdown"
+        )
+        
+        # Update farm value
+        farm_values[user_id] = next_value
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -88,6 +165,22 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def reset_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if user_id in active_games:
+        del active_games[user_id]
+        await update.message.reply_text(
+            "🔄 *Ваша игра успешно сброшена!*\n"
+            "Теперь вы можете начать новую игру.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "ℹ️ У вас нет активных игр, которые нужно сбросить.",
+            parse_mode="Markdown"
+        )
+
 async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -99,7 +192,7 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in active_games:
         await update.message.reply_text(
             "⚠️ *У вас уже есть активная игра!*\n"
-            "Завершите её, прежде чем начать новую :с",
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
             parse_mode="Markdown"
         )
         return
@@ -118,7 +211,7 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bet = int(context.args[1])
     except ValueError:
         await update.message.reply_text(
-            "❌ *Ошибка!* Оба аргумента должны быть числами, идиот блять",
+            "❌ *Ошибка!* Оба аргумента должны быть числами.",
             parse_mode="Markdown"
         )
         return
@@ -126,21 +219,21 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Validate input
     if num_mines <= 0 or num_mines >= TOTAL_TILES:
         await update.message.reply_text(
-            f"❌ *Ошибка!* Количество мин должно быть от 1 до {TOTAL_TILES-1} тупой сука",
+            f"❌ *Ошибка!* Количество мин должно быть от 1 до {TOTAL_TILES-1}.",
             parse_mode="Markdown"
         )
         return
     
     if bet < MIN_BET:
         await update.message.reply_text(
-            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$* понял?",
+            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$*.",
             parse_mode="Markdown"
         )
         return
     
     if bet > user_balances[user_id]:
         await update.message.reply_text(
-            f"❌ *Недостаточно средств нищета блять 😂*\n\n"
+            f"❌ *Недостаточно средств!*\n\n"
             f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
             f"Требуется: *{bet} ktn$*",
             parse_mode="Markdown"
@@ -163,7 +256,8 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "game_over": False,
         "win": False,
         "user_id": user_id,
-        "user_name": user_name
+        "user_name": user_name,
+        "chat_id": update.effective_chat.id
     }
     
     active_games[user_id] = game_state
@@ -227,9 +321,9 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             )
         else:
             status = (
-                f"💥 *Пиздец! {game['user_name']} здох на мине нахуй(* 💥\n\n"
-                f"❌ Ставка *{game['bet']} ktn$* потеряна, соси\n"
-                f"😘 Удачи в следующий раз"
+                f"💥 *Ой! {game['user_name']} подорвался на мине!* 💥\n\n"
+                f"❌ Ставка *{game['bet']} ktn$* потеряна(\n"
+                f"🎮 Удачи в следующий раз!"
             )
     else:
         status = (
@@ -239,28 +333,40 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             f"✅ Открыто безопасных клеток: *{revealed_count}*\n"
             f"📈 Текущий множитель: *{multiplier}x*\n"
             f"💎 Выигрыш: *{potential_win} ktn$*\n\n"
-            f"*Нажимайте на клетки, чтобы открыть их*"
+            f"*Нажимайте на клетки, чтобы открыть их!*"
         )
     
     # Update or send new message
     if "message_id" in game:
         try:
             await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
+                chat_id=game["chat_id"],
                 message_id=game["message_id"],
                 text=status,
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
-        except Exception:
+        except Exception as e:
             # If there's an error updating, send a new message
             message = await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=game["chat_id"],
                 text=status,
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
             game["message_id"] = message.message_id
+            
+            # Try to pin the message
+            try:
+                await context.bot.pin_chat_message(
+                    chat_id=game["chat_id"],
+                    message_id=message.message_id,
+                    disable_notification=True
+                )
+                game["pinned"] = True
+            except Exception:
+                # If pinning fails, continue anyway
+                pass
     else:
         # First time sending the board
         message = await update.message.reply_text(
@@ -269,26 +375,40 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             parse_mode="Markdown"
         )
         game["message_id"] = message.message_id
+        
+        # Try to pin the message
+        try:
+            await context.bot.pin_chat_message(
+                chat_id=game["chat_id"],
+                message_id=message.message_id,
+                disable_notification=True
+            )
+            game["pinned"] = True
+        except Exception:
+            # If pinning fails, continue anyway
+            pass
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Answer the callback query
     
+    # Extract data from callback
+    callback_parts = query.data.split('_')
     caller_id = update.effective_user.id
     
     # Extract user_id from callback data
-    callback_parts = query.data.split('_')
     game_owner_id = int(callback_parts[-1])
     
     # Security check: Only game owner can press buttons
     if caller_id != game_owner_id:
-        await query.answer("⚠️ Ебалай это не твоя игра 💔", show_alert=True)
+        await query.answer("Это не ваша игра! Вы не можете нажимать на кнопки в чужой игре.", show_alert=False)
         return
+    
+    await query.answer()  # Answer the callback query
     
     if game_owner_id not in active_games:
         await query.edit_message_text(
             "❌ *Игра не найдена!*\n"
-            "Начните новую игру с помощью команды /mines 😋",
+            "Начните новую игру с помощью команды /mines",
             parse_mode="Markdown"
         )
         return
@@ -328,6 +448,19 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Reveal all mines
         await show_all_mines(update, context, game_owner_id)
         
+        # Schedule message deletion after 5 seconds
+        asyncio.create_task(delete_game_message_after_delay(context, game, 5))
+        
+        # Unpin if pinned
+        if game.get("pinned", False):
+            try:
+                await context.bot.unpin_chat_message(
+                    chat_id=game["chat_id"],
+                    message_id=game["message_id"]
+                )
+            except Exception:
+                pass
+        
         # Clean up
         del active_games[game_owner_id]
         return
@@ -338,7 +471,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Check if tile already revealed
         if position in game["revealed_positions"]:
-            await query.answer("Бляять ты тупой что-ли")
+            await query.answer("Эта клетка уже открыта!")
             return
         
         # Check if tile is a mine
@@ -349,6 +482,19 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Show all mines
             await show_all_mines(update, context, game_owner_id)
             
+            # Schedule message deletion after 5 seconds
+            asyncio.create_task(delete_game_message_after_delay(context, game, 5))
+            
+            # Unpin if pinned
+            if game.get("pinned", False):
+                try:
+                    await context.bot.unpin_chat_message(
+                        chat_id=game["chat_id"],
+                        message_id=game["message_id"]
+                    )
+                except Exception:
+                    pass
+            
             # Clean up
             del active_games[game_owner_id]
         else:
@@ -357,6 +503,17 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Update game board
             await send_game_board(update, context, game_owner_id)
+
+async def delete_game_message_after_delay(context, game, delay_seconds):
+    await asyncio.sleep(delay_seconds)
+    try:
+        await context.bot.delete_message(
+            chat_id=game["chat_id"],
+            message_id=game["message_id"]
+        )
+    except Exception:
+        # If deletion fails, it's not critical
+        pass
 
 async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     game = active_games[user_id]
@@ -400,23 +557,45 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             f"🎉 *{game['user_name']} выиграл {game['win_amount']} ktn$!* 🎉\n\n"
             f"💰 Множитель: *{multiplier}x*\n"
             f"💵 Ставка: *{game['bet']} ktn$*\n"
-            f"💎 Выигрыш: *{game['win_amount']} ktn$*"
+            f"💎 Выигрыш: *{game['win_amount']} ktn$*\n\n"
+            f"⏱️ *Сообщение будет удалено через 5 секунд*"
         )
     else:
         status = (
-            f"💥 *Хуйня брат {game['user_name']} неповезло! :с* 💥\n\n"
-            f"❌ Ставка *{game['bet']} ktn$* потеряна\n"
-            f"**Надеюсь тебе повезёт в следующий раз...**"
+            f"💥 *Ой! {game['user_name']} подорвался на мине!* 💥\n\n"
+            f"❌ Ставка *{game['bet']} ktn$* потеряна.\n"
+            f"🎮 Удачи в следующий раз!\n\n"
+            f"⏱️ *Сообщение будет удалено через 5 секунд*"
         )
     
     # Update message
     await context.bot.edit_message_text(
-        chat_id=update.effective_chat.id,
+        chat_id=game["chat_id"],
         message_id=game["message_id"],
         text=status,
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+
+# Cleanup function to run periodically
+async def cleanup_stale_games(context: ContextTypes.DEFAULT_TYPE):
+    current_time = datetime.now()
+    stale_game_users = []
+    
+    # Find stale games (older than 1 hour)
+    for user_id, game in active_games.items():
+        if not hasattr(game, 'start_time'):
+            game['start_time'] = current_time
+            continue
+            
+        time_diff = current_time - game['start_time']
+        if time_diff > timedelta(hours=1):
+            stale_game_users.append(user_id)
+    
+    # Remove stale games
+    for user_id in stale_game_users:
+        if user_id in active_games:
+            del active_games[user_id]
 
 def main():
     # Create the Application
@@ -425,9 +604,15 @@ def main():
     # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("free", free))
+    app.add_handler(CommandHandler("farm", farm))
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("mines", mines))
+    app.add_handler(CommandHandler("reset", reset_game))
     app.add_handler(CallbackQueryHandler(handle_button))
+    
+    # Add job for cleanup
+    job_queue = app.job_queue
+    job_queue.run_repeating(cleanup_stale_games, interval=3600, first=3600)
     
     # Start the Bot
     print("Бот запущен!")
