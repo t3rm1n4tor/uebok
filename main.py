@@ -21,7 +21,7 @@ TOTAL_TILES = 25
 FREE_COINS = 25
 ROWS = 5
 COLS = 5
-FREE_COOLDOWN_HOURS = 0.5
+FREE_COOLDOWN_HOURS = 0.2
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -338,7 +338,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Check if tile already revealed
         if position in game["revealed_positions"]:
-            await query.answe("Бляять ты тупой что-ли")
+            await query.answer("Бляять ты тупой что-ли")
             return
         
         # Check if tile is a mine
