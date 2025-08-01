@@ -17,11 +17,11 @@ free_cooldowns = {}  # Track when users last used /free command
 
 # Game configuration
 MIN_BET = 5
-TOTAL_TILES = 24
-FREE_COINS = 10
-ROWS = 4
-COLS = 6
-FREE_COOLDOWN_HOURS = 2
+TOTAL_TILES = 25
+FREE_COINS = 25
+ROWS = 5
+COLS = 5
+FREE_COOLDOWN_HOURS = 0.5
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
