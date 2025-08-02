@@ -91,24 +91,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_inventories[user_id] = {}
     
     try:
-        await update.message.reply_text(
-            f"🎮 *Добро пожаловать в игровой бот Mines, {user_name}!* 🎮\n\n"
-            f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-            "📋 *Доступные команды:*\n"
-            "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
-            "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
-            "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
-            "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
-            "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
-            "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
-            "▫️ /opencase [1-3] - Открыть кейс с призами\n"
-            "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
-            "▫️ /inventory - Посмотреть свой инвентарь\n"
-            "▫️ /balance - Проверить баланс\n"
-            "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
-            "🎯 *Удачной игры!*",
-            parse_mode="Markdown"
-        )
+        text = f"🎮 Добро пожаловать в игровой бот Mines, {user_name}! 🎮\n\n"
+        text += f"💰 Ваш баланс: {user_balances[user_id]} ktn$\n\n"
+        text += "📋 Доступные команды:\n"
+        text += "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
+        text += "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
+        text += "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
+        text += "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
+        text += "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
+        text += "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
+        text += "▫️ /opencase [1-3] - Открыть кейс с призами\n"
+        text += "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
+        text += "▫️ /inventory - Посмотреть свой инвентарь\n"
+        text += "▫️ /balance - Проверить баланс\n"
+        text += "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
+        text += "🎯 Удачной игры!"
+        
+        await update.message.reply_text(text)
     except Exception as e:
         print(f"Error in start command: {e}")
 
@@ -131,9 +130,8 @@ async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
             seconds = int(remaining.total_seconds() % 60)
             
             await update.message.reply_text(
-                f"⏳ *Подождите!* Вы сможете получить бесплатные монеты через *{minutes} мин. {seconds} сек.*\n\n"
-                f"Текущий баланс: *{user_balances[user_id]} ktn$*",
-                parse_mode="Markdown"
+                f"⏳ Подождите! Вы сможете получить бесплатные монеты через {minutes} мин. {seconds} сек.\n\n"
+                f"Текущий баланс: {user_balances[user_id]} ktn$"
             )
             return
     
@@ -142,10 +140,9 @@ async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     free_cooldowns[user_id] = current_time
     
     await update.message.reply_text(
-        f"💸 *Поздравляем!* Вы получили *{FREE_COINS} ktn$*!\n\n"
-        f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-        f"⏰ Следующие бесплатные монеты будут доступны через *{FREE_COOLDOWN_MINUTES} минут*.",
-        parse_mode="Markdown"
+        f"💸 Поздравляем! Вы получили {FREE_COINS} ktn$!\n\n"
+        f"💰 Ваш баланс: {user_balances[user_id]} ktn$\n\n"
+        f"⏰ Следующие бесплатные монеты будут доступны через {FREE_COOLDOWN_MINUTES} минут."
     )
 
 async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,11 +178,10 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             seconds = int(remaining.total_seconds() % 60)
             
             await update.message.reply_text(
-                f"🌱 *Ваша ферма ещё растёт!*\n\n"
-                f"⏳ Следующий сбор урожая через *{minutes} мин. {seconds} сек.*\n"
-                f"🌾 Ожидаемый урожай: *{farm_values[user_id]} ktn$*\n\n"
-                f"💰 Текущий баланс: *{user_balances[user_id]} ktn$*",
-                parse_mode="Markdown"
+                f"🌱 Ваша ферма ещё растёт!\n\n"
+                f"⏳ Следующий сбор урожая через {minutes} мин. {seconds} сек.\n"
+                f"🌾 Ожидаемый урожай: {farm_values[user_id]} ktn$\n\n"
+                f"💰 Текущий баланс: {user_balances[user_id]} ktn$"
             )
             return
     
@@ -198,12 +194,11 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         next_value = round(farm_values[user_id] * 1.5)
         
         await update.message.reply_text(
-            f"❌ *Неудача!* Ваш урожай погиб!\n\n"
+            f"❌ Неудача! Ваш урожай погиб!\n\n"
             f"🌱 Но не расстраивайтесь, следующий урожай будет ещё больше!\n"
-            f"🌾 Следующий ожидаемый урожай: *{next_value} ktn$*\n\n"
-            f"⏰ Приходите через *{FARM_COOLDOWN_MINUTES} минут*\n"
-            f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*",
-            parse_mode="Markdown"
+            f"🌾 Следующий ожидаемый урожай: {next_value} ktn$\n\n"
+            f"⏰ Приходите через {FARM_COOLDOWN_MINUTES} минут\n"
+            f"💰 Ваш баланс: {user_balances[user_id]} ktn$"
         )
         
         # Update farm value
@@ -216,12 +211,11 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         next_value = round(current_value * 1.5)
         
         await update.message.reply_text(
-            f"✅ *Успех!* Вы собрали *{current_value} ktn$* с вашей фермы!\n\n"
+            f"✅ Успех! Вы собрали {current_value} ktn$ с вашей фермы!\n\n"
             f"🌱 Ваша ферма растёт!\n"
-            f"🌾 Следующий ожидаемый урожай: *{next_value} ktn$*\n\n"
-            f"⏰ Приходите через *{FARM_COOLDOWN_MINUTES} минут*\n"
-            f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*",
-            parse_mode="Markdown"
+            f"🌾 Следующий ожидаемый урожай: {next_value} ktn$\n\n"
+            f"⏰ Приходите через {FARM_COOLDOWN_MINUTES} минут\n"
+            f"💰 Ваш баланс: {user_balances[user_id]} ktn$"
         )
         
         # Update farm value
@@ -243,20 +237,19 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if not context.args or len(context.args) != 2:
         try:
-            await update.message.reply_text(
-                "ℹ️ *Улучшение фермы*\n\n"
-                "*Использование:* /upgrade_farm [сумма] [режим]\n\n"
-                "*Доступные режимы:*\n"
-                "1 - Инвестировать в увеличение прибыли\n"
-                "2 - Инвестировать в защиту от неудач\n"
-                "3 - Инвестировать в снижение времени отката\n\n"
-                "*Текущие параметры фермы:*\n"
-                f"🌾 Доходность: *{farm_values[user_id]} ktn$*\n"
-                f"🛡️ Шанс неудачи: *{farm_fail_chances[user_id]}%*\n"
-                f"⏱️ Время отката: *{FARM_COOLDOWN_MINUTES} мин.*\n\n"
-                "Пример: `/upgrade_farm 100 1`",
-                parse_mode="Markdown"
-            )
+            text = "ℹ️ Улучшение фермы\n\n"
+            text += "Использование: /upgrade_farm [сумма] [режим]\n\n"
+            text += "Доступные режимы:\n"
+            text += "1 - Инвестировать в увеличение прибыли\n"
+            text += "2 - Инвестировать в защиту от неудач\n"
+            text += "3 - Инвестировать в снижение времени отката\n\n"
+            text += "Текущие параметры фермы:\n"
+            text += f"🌾 Доходность: {farm_values[user_id]} ktn$\n"
+            text += f"🛡️ Шанс неудачи: {farm_fail_chances[user_id]}%\n"
+            text += f"⏱️ Время отката: {FARM_COOLDOWN_MINUTES} мин.\n\n"
+            text += "Пример: /upgrade_farm 100 1"
+            
+            await update.message.reply_text(text)
         except Exception as e:
             print(f"Error in upgrade_farm info: {e}")
         return
@@ -266,38 +259,34 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode = int(context.args[1])
     except ValueError:
         await update.message.reply_text(
-            "❌ *Ошибка!* Сумма и режим должны быть числами.\n\n"
-            "Используйте: `/upgrade_farm [сумма] [режим]`\n"
-            "Пример: `/upgrade_farm 100 1`",
-            parse_mode="Markdown"
+            "❌ Ошибка! Сумма и режим должны быть числами.\n\n"
+            "Используйте: /upgrade_farm [сумма] [режим]\n"
+            "Пример: /upgrade_farm 100 1"
         )
         return
     
     # Validate input
     if amount <= 0:
         await update.message.reply_text(
-            "❌ *Ошибка!* Сумма должна быть положительным числом.",
-            parse_mode="Markdown"
+            "❌ Ошибка! Сумма должна быть положительным числом."
         )
         return
     
     if mode not in [1, 2, 3]:
         await update.message.reply_text(
-            "❌ *Ошибка!* Режим должен быть 1, 2 или 3.\n\n"
-            "*Доступные режимы:*\n"
+            "❌ Ошибка! Режим должен быть 1, 2 или 3.\n\n"
+            "Доступные режимы:\n"
             "1 - Инвестировать в увеличение прибыли\n"
             "2 - Инвестировать в защиту от неудач\n"
-            "3 - Инвестировать в снижение времени отката",
-            parse_mode="Markdown"
+            "3 - Инвестировать в снижение времени отката"
         )
         return
     
     if amount > user_balances[user_id]:
         await update.message.reply_text(
-            f"❌ *Недостаточно средств!*\n\n"
-            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
-            f"Требуется: *{amount} ktn$*",
-            parse_mode="Markdown"
+            f"❌ Недостаточно средств!\n\n"
+            f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+            f"Требуется: {amount} ktn$"
         )
         return
     
@@ -314,12 +303,11 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         farm_values[user_id] = round(old_value * (1 + percentage_increase / 100), 1)
         
         await update.message.reply_text(
-            f"🌱 *Ферма улучшена!*\n\n"
-            f"💰 Инвестировано: *{amount} ktn$*\n"
-            f"📈 Доходность увеличена: *{old_value} ktn$ → {farm_values[user_id]} ktn$*\n"
-            f"📊 Процент увеличения: *+{percentage_increase}%*\n\n"
-            f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
-            parse_mode="Markdown"
+            f"🌱 Ферма улучшена!\n\n"
+            f"💰 Инвестировано: {amount} ktn$\n"
+            f"📈 Доходность увеличена: {old_value} ktn$ → {farm_values[user_id]} ktn$\n"
+            f"📊 Процент увеличения: +{percentage_increase}%\n\n"
+            f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
         )
     elif mode == 2:
         # Upgrade farm immunity - with diminishing returns
@@ -329,12 +317,11 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         farm_fail_chances[user_id] = max(1, round(old_chance - percentage_decrease, 1))  # Minimum 1%
         
         await update.message.reply_text(
-            f"🛡️ *Защита фермы улучшена!*\n\n"
-            f"💰 Инвестировано: *{amount} ktn$*\n"
-            f"📉 Шанс неудачи снижен: *{old_chance}% → {farm_fail_chances[user_id]}%*\n"
-            f"📊 Процент снижения: *-{percentage_decrease}%*\n\n"
-            f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
-            parse_mode="Markdown"
+            f"🛡️ Защита фермы улучшена!\n\n"
+            f"💰 Инвестировано: {amount} ktn$\n"
+            f"📉 Шанс неудачи снижен: {old_chance}% → {farm_fail_chances[user_id]}%\n"
+            f"📊 Процент снижения: -{percentage_decrease}%\n\n"
+            f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
         )
     else:  # mode == 3
         # New mode: reduce cooldown time (min 1 minute)
@@ -348,12 +335,11 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         farm_cooldowns["temp_cooldown"][user_id] = reduction_minutes
         
         await update.message.reply_text(
-            f"⏱️ *Время отката фермы уменьшено!*\n\n"
-            f"💰 Инвестировано: *{amount} ktn$*\n"
-            f"⏳ Время отката для следующего сбора: *{FARM_COOLDOWN_MINUTES - reduction_minutes} мин.*\n"
-            f"📊 Уменьшение времени: *-{reduction_minutes} мин.*\n\n"
-            f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
-            parse_mode="Markdown"
+            f"⏱️ Время отката фермы уменьшено!\n\n"
+            f"💰 Инвестировано: {amount} ktn$\n"
+            f"⏳ Время отката для следующего сбора: {FARM_COOLDOWN_MINUTES - reduction_minutes} мин.\n"
+            f"📊 Уменьшение времени: -{reduction_minutes} мин.\n\n"
+            f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
         )
 
 async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -366,15 +352,14 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if inventory is empty
     if not user_inventories[user_id]:
         await update.message.reply_text(
-            f"📦 *Инвентарь пользователя {user_name}*\n\n"
+            f"📦 Инвентарь пользователя {user_name}\n\n"
             f"Ваш инвентарь пуст.\n\n"
-            f"Предметы можно приобрести в магазине: /shop stock",
-            parse_mode="Markdown"
+            f"Предметы можно приобрести в магазине: /shop stock"
         )
         return
     
     # Create inventory display
-    inventory_text = f"📦 *Инвентарь пользователя {user_name}*\n\n"
+    inventory_text = f"📦 Инвентарь пользователя {user_name}\n\n"
     
     # Convert internal item keys to their display names
     reverse_item_map = {v: k for k, v in ITEM_ID_MAP.items()}
@@ -385,17 +370,14 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
             item_id = reverse_item_map.get(item_key)
             if item_id and item_id in SHOP_ITEMS:
                 item = SHOP_ITEMS[item_id]
-                inventory_text += f"{item['emoji']} *{item['name']}* - {count} шт.\n"
+                inventory_text += f"{item['emoji']} {item['name']} - {count} шт.\n"
                 inventory_text += f"└ {item['description']}\n"
-                inventory_text += f"└ ID: `{item['id']}`\n\n"
+                inventory_text += f"└ ID: {item['id']}\n\n"
     
-    inventory_text += f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-    inventory_text += "Предметы можно приобрести в магазине: `/shop stock`"
+    inventory_text += f"💰 Ваш баланс: {user_balances[user_id]} ktn$\n\n"
+    inventory_text += "Предметы можно приобрести в магазине: /shop stock"
     
-    await update.message.reply_text(
-        inventory_text,
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(inventory_text)
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -409,9 +391,8 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if len(context.args) < 1:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /shop [buy/stock] [ID предмета]\n\n"
-            "Пример: `/shop buy 1` или `/shop stock`",
-            parse_mode="Markdown"
+            "ℹ️ Использование: /shop [buy/stock] [ID предмета]\n\n"
+            "Пример: /shop buy 1 или /shop stock"
         )
         return
     
@@ -419,29 +400,25 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if action == "stock":
         # Show available items
-        stock_text = "🛒 *Доступные предметы в магазине:*\n\n"
+        stock_text = "🛒 Доступные предметы в магазине:\n\n"
         
         for item_id, item in SHOP_ITEMS.items():
-            stock_text += f"{item['emoji']} *{item['name']}* - {item['price']} ktn$\n"
+            stock_text += f"{item['emoji']} {item['name']} - {item['price']} ktn$\n"
             stock_text += f"└ {item['description']}\n"
-            stock_text += f"└ ID: `{item['id']}`\n\n"
+            stock_text += f"└ ID: {item['id']}\n\n"
         
-        stock_text += f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-        stock_text += "Для покупки используйте: `/shop buy [ID предмета]`"
+        stock_text += f"💰 Ваш баланс: {user_balances[user_id]} ktn$\n\n"
+        stock_text += "Для покупки используйте: /shop buy [ID предмета]"
         
-        await update.message.reply_text(
-            stock_text,
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text(stock_text)
         return
     
     elif action == "buy":
         if len(context.args) < 2:
             await update.message.reply_text(
-                "❌ *Ошибка!* Укажите ID предмета для покупки.\n"
-                "Пример: `/shop buy 1`\n\n"
-                "Для просмотра доступных предметов используйте: `/shop stock`",
-                parse_mode="Markdown"
+                "❌ Ошибка! Укажите ID предмета для покупки.\n"
+                "Пример: /shop buy 1\n\n"
+                "Для просмотра доступных предметов используйте: /shop stock"
             )
             return
         
@@ -449,9 +426,8 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if item_id not in SHOP_ITEMS:
             await update.message.reply_text(
-                "❌ *Ошибка!* Указанный ID предмета не найден.\n\n"
-                "Для просмотра доступных предметов используйте: `/shop stock`",
-                parse_mode="Markdown"
+                "❌ Ошибка! Указанный ID предмета не найден.\n\n"
+                "Для просмотра доступных предметов используйте: /shop stock"
             )
             return
         
@@ -460,10 +436,9 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user has enough money
         if user_balances[user_id] < item["price"]:
             await update.message.reply_text(
-                f"❌ *Недостаточно средств!*\n\n"
-                f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
-                f"Стоимость предмета: *{item['price']} ktn$*",
-                parse_mode="Markdown"
+                f"❌ Недостаточно средств!\n\n"
+                f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+                f"Стоимость предмета: {item['price']} ktn$"
             )
             return
         
@@ -479,20 +454,18 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_inventories[user_id][internal_key] += 1
         
         await update.message.reply_text(
-            f"✅ *Покупка успешна!*\n\n"
-            f"{item['emoji']} Вы приобрели: *{item['name']}*\n"
-            f"💰 Стоимость: *{item['price']} ktn$*\n"
-            f"📦 У вас в инвентаре: *{user_inventories[user_id][internal_key]}* шт.\n\n"
-            f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
-            parse_mode="Markdown"
+            f"✅ Покупка успешна!\n\n"
+            f"{item['emoji']} Вы приобрели: {item['name']}\n"
+            f"💰 Стоимость: {item['price']} ktn$\n"
+            f"📦 У вас в инвентаре: {user_inventories[user_id][internal_key]} шт.\n\n"
+            f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
         )
         return
     
     else:
         await update.message.reply_text(
-            "❌ *Ошибка!* Неверное действие.\n\n"
-            "Доступные действия: `buy`, `stock`",
-            parse_mode="Markdown"
+            "❌ Ошибка! Неверное действие.\n\n"
+            "Доступные действия: buy, stock"
         )
 
 async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -508,12 +481,11 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if len(context.args) != 2:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /coinflip [ставка] [сторона]\n\n"
-            "*Доступные стороны:*\n"
+            "ℹ️ Использование: /coinflip [ставка] [сторона]\n\n"
+            "Доступные стороны:\n"
             "▫️ heads/h/орел/о - Орёл\n"
             "▫️ tails/t/решка/р - Решка\n\n"
-            "Пример: `/coinflip 50 орел`",
-            parse_mode="Markdown"
+            "Пример: /coinflip 50 орел"
         )
         return
     
@@ -521,8 +493,7 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bet = int(context.args[0])
     except ValueError:
         await update.message.reply_text(
-            "❌ *Ошибка!* Ставка должна быть числом.",
-            parse_mode="Markdown"
+            "❌ Ошибка! Ставка должна быть числом."
         )
         return
     
@@ -540,28 +511,25 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player_choice_ru = "Решка"
     else:
         await update.message.reply_text(
-            "❌ *Ошибка!* Неверная сторона монеты.\n\n"
-            "*Доступные стороны:*\n"
+            "❌ Ошибка! Неверная сторона монеты.\n\n"
+            "Доступные стороны:\n"
             "▫️ heads/h/орел/о - Орёл\n"
-            "▫️ tails/t/решка/р - Решка",
-            parse_mode="Markdown"
+            "▫️ tails/t/решка/р - Решка"
         )
         return
     
     # Validate bet
     if bet < MIN_BET:
         await update.message.reply_text(
-            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$*.",
-            parse_mode="Markdown"
+            f"❌ Ошибка! Минимальная ставка: {MIN_BET} ktn$."
         )
         return
     
     if bet > user_balances[user_id]:
         await update.message.reply_text(
-            f"❌ *Недостаточно средств!*\n\n"
-            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
-            f"Требуется: *{bet} ktn$*",
-            parse_mode="Markdown"
+            f"❌ Недостаточно средств!\n\n"
+            f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+            f"Требуется: {bet} ktn$"
         )
         return
     
@@ -570,12 +538,11 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Send initial message
     initial_message = await update.message.reply_text(
-        f"🪙 *Бросаем монетку...*\n\n"
-        f"👤 Игрок: *{user_name}*\n"
-        f"💰 Ставка: *{bet} ktn$*\n"
-        f"🎯 Выбор: *{player_choice_ru}*\n\n"
-        f"⏳ *Подбрасываем монету...*",
-        parse_mode="Markdown"
+        f"🪙 Бросаем монетку...\n\n"
+        f"👤 Игрок: {user_name}\n"
+        f"💰 Ставка: {bet} ktn$\n"
+        f"🎯 Выбор: {player_choice_ru}\n\n"
+        f"⏳ Подбрасываем монету..."
     )
     
     # Animation
@@ -584,12 +551,11 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=initial_message.message_id,
-            text=f"🪙 *Бросаем монетку...*\n\n"
-                 f"👤 Игрок: *{user_name}*\n"
-                 f"💰 Ставка: *{bet} ktn$*\n"
-                 f"🎯 Выбор: *{player_choice_ru}*\n\n"
-                 f"⏳ *{'Орёл' if i % 2 == 0 else 'Решка'}...*",
-            parse_mode="Markdown"
+            text=f"🪙 Бросаем монетку...\n\n"
+                 f"👤 Игрок: {user_name}\n"
+                 f"💰 Ставка: {bet} ktn$\n"
+                 f"🎯 Выбор: {player_choice_ru}\n\n"
+                 f"⏳ {'Орёл' if i % 2 == 0 else 'Решка'}..."
         )
     
     # Check if user has lucky coin and apply bonus
@@ -618,28 +584,27 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_won:
         winnings = bet * 2
         user_balances[user_id] += winnings
-        result_text = f"🎉 *Вы выиграли!*\n💰 Выигрыш: *{winnings} ktn$*"
+        result_text = f"🎉 Вы выиграли!\n💰 Выигрыш: {winnings} ktn$"
     else:
         winnings = 0
-        result_text = "❌ *Вы проиграли!*\n💰 Ставка потеряна."
+        result_text = "❌ Вы проиграли!\n💰 Ставка потеряна."
     
     # Bonus info if lucky coin was used
     bonus_text = ""
     if has_lucky_coin:
-        bonus_text = f"\n🪙 *Счастливая монета* дала вам +{bonus_chance}% к шансу выигрыша!"
+        bonus_text = f"\n🪙 Счастливая монета дала вам +{bonus_chance}% к шансу выигрыша!"
     
     # Final message
     await context.bot.edit_message_text(
         chat_id=update.effective_chat.id,
         message_id=initial_message.message_id,
-        text=f"🪙 *Результат броска монеты:*\n\n"
-             f"👤 Игрок: *{user_name}*\n"
-             f"💰 Ставка: *{bet} ktn$*\n"
-             f"🎯 Ваш выбор: *{player_choice_ru}*\n"
-             f"🎲 Выпало: *{coin_result_ru}*\n\n"
+        text=f"🪙 Результат броска монеты:\n\n"
+             f"👤 Игрок: {user_name}\n"
+             f"💰 Ставка: {bet} ktn$\n"
+             f"🎯 Ваш выбор: {player_choice_ru}\n"
+             f"🎲 Выпало: {coin_result_ru}\n\n"
              f"{result_text}{bonus_text}\n\n"
-             f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
-        parse_mode="Markdown"
+             f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
     )
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -650,9 +615,8 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_balances[user_id] = 0
     
     await update.message.reply_text(
-        f"💰 *Баланс пользователя {user_name}*\n\n"
-        f"*{user_balances[user_id]} ktn$*",
-        parse_mode="Markdown"
+        f"💰 Баланс пользователя {user_name}\n\n"
+        f"{user_balances[user_id]} ktn$"
     )
 
 async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -669,8 +633,7 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if time_since_last < cooldown_time:
             remaining_seconds = round((cooldown_time - time_since_last).total_seconds())
             await update.message.reply_text(
-                f"⏳ *Подождите {remaining_seconds} сек. перед открытием следующего кейса!*",
-                parse_mode="Markdown"
+                f"⏳ Подождите {remaining_seconds} сек. перед открытием следующего кейса!"
             )
             return
     
@@ -681,10 +644,9 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if len(context.args) != 1:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /opencase [номер_кейса]\n\n"
-            "*Доступные кейсы:*\n"
-            "1 - Бронзовый кейс (35 ktn$)",
-            parse_mode="Markdown"
+            "ℹ️ Использование: /opencase [номер_кейса]\n\n"
+            "Доступные кейсы:\n"
+            "1 - Бронзовый кейс (35 ktn$)"
         )
         return
     
@@ -693,10 +655,9 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Validate case type
     if case_type not in CASE_COSTS:
         await update.message.reply_text(
-            "❌ *Ошибка!* Указан неверный тип кейса.\n\n"
-            "*Доступные кейсы:*\n"
-            "1 - Бронзовый кейс (35 ktn$)",
-            parse_mode="Markdown"
+            "❌ Ошибка! Указан неверный тип кейса.\n\n"
+            "Доступные кейсы:\n"
+            "1 - Бронзовый кейс (35 ktn$)"
         )
         return
     
@@ -705,10 +666,9 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user has enough balance
     if user_balances[user_id] < case_cost:
         await update.message.reply_text(
-            f"❌ *Недостаточно средств!*\n\n"
-            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
-            f"Стоимость кейса: *{case_cost} ktn$*",
-            parse_mode="Markdown"
+            f"❌ Недостаточно средств!\n\n"
+            f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+            f"Стоимость кейса: {case_cost} ktn$"
         )
         return
     
@@ -724,11 +684,10 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     initial_message = await update.message.reply_text(
-        f"🎁 *Открываем {case_names[case_type]} кейс...*\n\n"
-        f"💰 Стоимость: *{case_cost} ktn$*\n"
-        f"👤 Игрок: *{user_name}*\n\n"
-        f"⏳ *Выбираем приз...*",
-        parse_mode="Markdown"
+        f"🎁 Открываем {case_names[case_type]} кейс...\n\n"
+        f"💰 Стоимость: {case_cost} ktn$\n"
+        f"👤 Игрок: {user_name}\n\n"
+        f"⏳ Выбираем приз..."
     )
     
     # Animation sequence
@@ -747,11 +706,10 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=initial_message.message_id,
-                text=f"🎁 *Открываем {case_names[case_type]} кейс...*\n\n"
-                     f"💰 Стоимость: *{case_cost} ktn$*\n"
-                     f"👤 Игрок: *{user_name}*\n\n"
-                     f"⏳ *Выпадает: {random_prize['emoji']} ({random_prize['value']} ktn$)*",
-                parse_mode="Markdown"
+                text=f"🎁 Открываем {case_names[case_type]} кейс...\n\n"
+                     f"💰 Стоимость: {case_cost} ktn$\n"
+                     f"👤 Игрок: {user_name}\n\n"
+                     f"⏳ Выпадает: {random_prize['emoji']} ({random_prize['value']} ktn$)"
             )
         except Exception:
             pass
@@ -777,11 +735,10 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.edit_message_text(
         chat_id=update.effective_chat.id,
         message_id=initial_message.message_id,
-        text=f"🎁 *{case_names[case_type]} кейс открыт!*\n\n"
-             f"🏆 *Вы выиграли: {final_prize['emoji']} {final_prize['value']} ktn$*\n"
-             f"📊 Профит: *{profit_str} ktn$*\n\n"
-             f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*",
-        parse_mode="Markdown"
+        text=f"🎁 {case_names[case_type]} кейс открыт!\n\n"
+             f"🏆 Вы выиграли: {final_prize['emoji']} {final_prize['value']} ktn$\n"
+             f"📊 Профит: {profit_str} ktn$\n\n"
+             f"💰 Ваш баланс: {user_balances[user_id]} ktn$"
     )
 
 async def reset_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -801,24 +758,21 @@ async def reset_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         del active_games[user_id]
         await update.message.reply_text(
-            "🔄 *Ваша игра успешно сброшена!*\n"
-            "Теперь вы можете начать новую игру.",
-            parse_mode="Markdown"
+            "🔄 Ваша игра успешно сброшена!\n"
+            "Теперь вы можете начать новую игру."
         )
         return
     
     if user_id in blackjack_games:
         del blackjack_games[user_id]
         await update.message.reply_text(
-            "🔄 *Ваша игра в Блэкджек успешно сброшена!*\n"
-            "Теперь вы можете начать новую игру.",
-            parse_mode="Markdown"
+            "🔄 Ваша игра в Блэкджек успешно сброшена!\n"
+            "Теперь вы можете начать новую игру."
         )
         return
     
     await update.message.reply_text(
-        "ℹ️ У вас нет активных игр, которые нужно сбросить.",
-        parse_mode="Markdown"
+        "ℹ️ У вас нет активных игр, которые нужно сбросить."
     )
 
 async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -879,16 +833,15 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count_blackjack_after = len(blackjack_games)
     
     await update.message.reply_text(
-        f"🧹 *Очистка завершена*\n\n"
+        f"🧹 Очистка завершена\n\n"
         f"Игры Mines:\n"
-        f"- Было: *{count_before}*\n"
-        f"- Удалено: *{count_before - count_after}*\n"
-        f"- Осталось: *{count_after}*\n\n"
+        f"- Было: {count_before}\n"
+        f"- Удалено: {count_before - count_after}\n"
+        f"- Осталось: {count_after}\n\n"
         f"Игры Blackjack:\n"
-        f"- Было: *{count_blackjack_before}*\n"
-        f"- Удалено: *{count_blackjack_before - count_blackjack_after}*\n"
-        f"- Осталось: *{count_blackjack_after}*",
-        parse_mode="Markdown"
+        f"- Было: {count_blackjack_before}\n"
+        f"- Удалено: {count_blackjack_before - count_blackjack_after}\n"
+        f"- Осталось: {count_blackjack_after}"
     )
 
 async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -904,26 +857,23 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user already has an active game
     if user_id in active_games:
         await update.message.reply_text(
-            "⚠️ *У вас уже есть активная игра!*\n"
-            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
-            parse_mode="Markdown"
+            "⚠️ У вас уже есть активная игра!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
         )
         return
     
     if user_id in blackjack_games:
         await update.message.reply_text(
-            "⚠️ *У вас уже есть активная игра в Блэкджек!*\n"
-            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
-            parse_mode="Markdown"
+            "⚠️ У вас уже есть активная игра в Блэкджек!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
         )
         return
     
     # Parse arguments
     if len(context.args) != 2:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /mines [количество_мин] [ставка]\n\n"
-            "Пример: `/mines 5 10`",
-            parse_mode="Markdown"
+            "ℹ️ Использование: /mines [количество_мин] [ставка]\n\n"
+            "Пример: /mines 5 10"
         )
         return
     
@@ -932,32 +882,28 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bet = int(context.args[1])
     except ValueError:
         await update.message.reply_text(
-            "❌ *Ошибка!* Оба аргумента должны быть числами.",
-            parse_mode="Markdown"
+            "❌ Ошибка! Оба аргумента должны быть числами."
         )
         return
     
     # Validate input
     if num_mines <= 0 or num_mines >= TOTAL_TILES:
         await update.message.reply_text(
-            f"❌ *Ошибка!* Количество мин должно быть от 1 до {TOTAL_TILES-1}.",
-            parse_mode="Markdown"
+            f"❌ Ошибка! Количество мин должно быть от 1 до {TOTAL_TILES-1}."
         )
         return
     
     if bet < MIN_BET:
         await update.message.reply_text(
-            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$*.",
-            parse_mode="Markdown"
+            f"❌ Ошибка! Минимальная ставка: {MIN_BET} ktn$."
         )
         return
     
     if bet > user_balances[user_id]:
         await update.message.reply_text(
-            f"❌ *Недостаточно средств!*\n\n"
-            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
-            f"Требуется: *{bet} ktn$*",
-            parse_mode="Markdown"
+            f"❌ Недостаточно средств!\n\n"
+            f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+            f"Требуется: {bet} ktn$"
         )
         return
     
@@ -1049,34 +995,34 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         if game["game_over"]:
             if game["win"]:
                 status = (
-                    f"🎉 *{game['user_name']} выиграл {game['win_amount']} ktn$!* 🎉\n\n"
-                    f"💰 Множитель: *{multiplier}x*\n"
-                    f"💵 Ставка: *{game['bet']} ktn$*\n"
-                    f"💎 Выигрыш: *{game['win_amount']} ktn$*"
+                    f"🎉 {game['user_name']} выиграл {game['win_amount']} ktn$! 🎉\n\n"
+                    f"💰 Множитель: {multiplier}x\n"
+                    f"💵 Ставка: {game['bet']} ktn$\n"
+                    f"💎 Выигрыш: {game['win_amount']} ktn$"
                 )
             else:
                 status = (
-                    f"💥 *БУМ! {game['user_name']} подорвался на мине!* 💥\n\n"
-                    f"❌ Ставка *{game['bet']} ktn$* потеряна.\n"
+                    f"💥 БУМ! {game['user_name']} подорвался на мине! 💥\n\n"
+                    f"❌ Ставка {game['bet']} ktn$ потеряна.\n"
                     f"🎮 Удачи в следующий раз!"
                 )
         else:
             status = (
-                f"🎮 *MINES* | Игрок: *{game['user_name']}*\n\n"
-                f"💣 Мин на поле: *{game['num_mines']}*\n"
-                f"💰 Ставка: *{game['bet']} ktn$*\n"
-                f"✅ Открыто безопасных клеток: *{revealed_count}*\n"
-                f"📈 Текущий множитель: *{multiplier}x*\n"
-                f"💎 Потенциальный выигрыш: *{potential_win} ktn$*"
+                f"🎮 MINES | Игрок: {game['user_name']}\n\n"
+                f"💣 Мин на поле: {game['num_mines']}\n"
+                f"💰 Ставка: {game['bet']} ktn$\n"
+                f"✅ Открыто безопасных клеток: {revealed_count}\n"
+                f"📈 Текущий множитель: {multiplier}x\n"
+                f"💎 Потенциальный выигрыш: {potential_win} ktn$"
             )
             
             # Add aura info if available
             if game["has_aura"] and not game["aura_used"]:
-                status += "\n🛡️ *Защитная аура активна* (10% шанс защиты от мины)"
+                status += "\n🛡️ Защитная аура активна (10% шанс защиты от мины)"
             elif game["aura_used"]:
-                status += "\n🛡️ *Защитная аура использована!*"
+                status += "\n🛡️ Защитная аура использована!"
                 
-            status += "\n\n*Нажимайте на клетки, чтобы открыть их!*"
+            status += "\n\nНажимайте на клетки, чтобы открыть их!"
         
         # Update or send new message
         if "message_id" in game and "chat_id" in game:
@@ -1085,16 +1031,14 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                     chat_id=game["chat_id"],
                     message_id=game["message_id"],
                     text=status,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    reply_markup=reply_markup
                 )
             except Exception as e:
                 # If there's an error updating, send a new message
                 message = await context.bot.send_message(
                     chat_id=game["chat_id"],
                     text=status,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    reply_markup=reply_markup
                 )
                 game["message_id"] = message.message_id
                 
@@ -1123,8 +1067,7 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             # First time sending the board
             message = await update.message.reply_text(
                 text=status,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                reply_markup=reply_markup
             )
             game["message_id"] = message.message_id
             game["chat_id"] = update.effective_chat.id
@@ -1334,18 +1277,18 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             multiplier = 1.0
             
         status = (
-            f"🎉 *{game['user_name']} выиграл {game['win_amount']} ktn$!* 🎉\n\n"
-            f"💰 Множитель: *{multiplier}x*\n"
-            f"💵 Ставка: *{game['bet']} ktn$*\n"
-            f"💎 Выигрыш: *{game['win_amount']} ktn$*\n\n"
-            f"⏱️ *Сообщение будет удалено через 5 секунд*"
+            f"🎉 {game['user_name']} выиграл {game['win_amount']} ktn$! 🎉\n\n"
+            f"💰 Множитель: {multiplier}x\n"
+            f"💵 Ставка: {game['bet']} ktn$\n"
+            f"💎 Выигрыш: {game['win_amount']} ktn$\n\n"
+            f"⏱️ Сообщение будет удалено через 5 секунд"
         )
     else:
         status = (
-            f"💥 *БУМ! {game['user_name']} подорвался на мине!* 💥\n\n"
-            f"❌ Ставка *{game['bet']} ktn$* потеряна.\n"
+            f"💥 БУМ! {game['user_name']} подорвался на мине! 💥\n\n"
+            f"❌ Ставка {game['bet']} ktn$ потеряна.\n"
             f"🎮 Удачи в следующий раз!\n\n"
-            f"⏱️ *Сообщение будет удалено через 5 секунд*"
+            f"⏱️ Сообщение будет удалено через 5 секунд"
         )
     
     # Update message
@@ -1354,8 +1297,7 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             chat_id=game["chat_id"],
             message_id=game["message_id"],
             text=status,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
+            reply_markup=reply_markup
         )
     except Exception as e:
         print(f"Error in show_all_mines: {e}")
@@ -1416,33 +1358,30 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user already has an active game
     if user_id in active_games:
         await update.message.reply_text(
-            "⚠️ *У вас уже есть активная игра в Mines!*\n"
-            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
-            parse_mode="Markdown"
+            "⚠️ У вас уже есть активная игра в Mines!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
         )
         return
     
     if user_id in blackjack_games:
         await update.message.reply_text(
-            "⚠️ *У вас уже есть активная игра в Блэкджек!*\n"
-            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
-            parse_mode="Markdown"
+            "⚠️ У вас уже есть активная игра в Блэкджек!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
         )
         return
     
     # Check arguments
     if len(context.args) != 1:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /blackjack [ставка]\n\n"
-            "Пример: `/blackjack 50`\n\n"
-            "*Правила игры:*\n"
+            "ℹ️ Использование: /blackjack [ставка]\n\n"
+            "Пример: /blackjack 50\n\n"
+            "Правила игры:\n"
             "• Цель: набрать 21 очко или приблизиться к этому числу, не превысив его\n"
             "• Карты от 2 до 10 имеют номинальную ценность\n"
             "• Валеты, Дамы и Короли стоят по 10 очков\n"
             "• Тузы могут стоить 1 или 11 очков\n"
             "• Если у вас сразу 21 (Туз + 10/картинка) - у вас Блэкджек, вы выигрываете с коэффициентом 2.5\n"
-            "• Дилер должен брать карты, пока не наберёт 17 или больше",
-            parse_mode="Markdown"
+            "• Дилер должен брать карты, пока не наберёт 17 или больше"
         )
         return
     
@@ -1450,25 +1389,22 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bet = int(context.args[0])
     except ValueError:
         await update.message.reply_text(
-            "❌ *Ошибка!* Ставка должна быть числом.",
-            parse_mode="Markdown"
+            "❌ Ошибка! Ставка должна быть числом."
         )
         return
     
     # Validate bet
     if bet < MIN_BET:
         await update.message.reply_text(
-            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$*.",
-            parse_mode="Markdown"
+            f"❌ Ошибка! Минимальная ставка: {MIN_BET} ktn$."
         )
         return
     
     if bet > user_balances[user_id]:
         await update.message.reply_text(
-            f"❌ *Недостаточно средств!*\n\n"
-            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
-            f"Требуется: *{bet} ktn$*",
-            parse_mode="Markdown"
+            f"❌ Недостаточно средств!\n\n"
+            f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+            f"Требуется: {bet} ktn$"
         )
         return
     
@@ -1556,40 +1492,40 @@ async def send_blackjack_board(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Create status message
-        status = f"🎮 *BLACKJACK* | Игрок: *{game['user_name']}*\n\n"
+        status = f"🎮 BLACKJACK | Игрок: {game['user_name']}\n\n"
         
         # Player's hand
-        status += f"👤 *Ваши карты:* {format_hand(game['player_hand'])}\n"
-        status += f"📊 Сумма: *{game['player_value']}*\n\n"
+        status += f"👤 Ваши карты: {format_hand(game['player_hand'])}\n"
+        status += f"📊 Сумма: {game['player_value']}\n\n"
         
         # Dealer's hand
-        status += f"🎰 *Карты дилера:* {dealer_hand_display}\n"
-        status += f"📊 Сумма: *{dealer_value_display}*\n\n"
+        status += f"🎰 Карты дилера: {dealer_hand_display}\n"
+        status += f"📊 Сумма: {dealer_value_display}\n\n"
         
         # Bet information
-        status += f"💰 Ставка: *{game['bet']} ktn$*\n"
+        status += f"💰 Ставка: {game['bet']} ktn$\n"
         
         # Result information if game is over
         if game["game_over"]:
             if game["result"] == "blackjack":
                 winnings = int(game["bet"] * 2.5)
-                status += f"🎉 *БЛЭКДЖЕК!* Вы выиграли *{winnings} ktn$*\n"
+                status += f"🎉 БЛЭКДЖЕК! Вы выиграли {winnings} ktn$\n"
             elif game["result"] == "win":
                 winnings = game["bet"] * 2
-                status += f"🎉 *Вы выиграли!* Получено *{winnings} ktn$*\n"
+                status += f"🎉 Вы выиграли! Получено {winnings} ktn$\n"
             elif game["result"] == "push":
-                status += f"🤝 *Ничья!* Ставка возвращена.\n"
+                status += f"🤝 Ничья! Ставка возвращена.\n"
             elif game["result"] == "bust":
-                status += f"💥 *Перебор!* Вы проиграли *{game['bet']} ktn$*\n"
+                status += f"💥 Перебор! Вы проиграли {game['bet']} ktn$\n"
             elif game["result"] == "dealer_blackjack":
-                status += f"💀 *У дилера блэкджек!* Вы проиграли *{game['bet']} ktn$*\n"
+                status += f"💀 У дилера блэкджек! Вы проиграли {game['bet']} ktn$\n"
             elif game["result"] == "dealer_bust":
                 winnings = game["bet"] * 2
-                status += f"🎉 *У дилера перебор!* Вы выиграли *{winnings} ktn$*\n"
+                status += f"🎉 У дилера перебор! Вы выиграли {winnings} ktn$\n"
             elif game["result"] == "dealer_win":
-                status += f"💀 *Дилер выиграл!* Вы проиграли *{game['bet']} ktn$*\n"
+                status += f"💀 Дилер выиграл! Вы проиграли {game['bet']} ktn$\n"
             
-            status += f"\n💰 Ваш баланс: *{user_balances[user_id]} ktn$*"
+            status += f"\n💰 Ваш баланс: {user_balances[user_id]} ktn$"
         
         # Update or send new message
         if "message_id" in game and "chat_id" in game:
@@ -1598,24 +1534,21 @@ async def send_blackjack_board(update: Update, context: ContextTypes.DEFAULT_TYP
                     chat_id=game["chat_id"],
                     message_id=game["message_id"],
                     text=status,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    reply_markup=reply_markup
                 )
             except Exception as e:
                 # If there's an error updating, send a new message
                 message = await context.bot.send_message(
                     chat_id=game["chat_id"],
                     text=status,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    reply_markup=reply_markup
                 )
                 game["message_id"] = message.message_id
         else:
             # First time sending the board
             message = await update.message.reply_text(
                 text=status,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                reply_markup=reply_markup
             )
             game["message_id"] = message.message_id
             game["chat_id"] = update.effective_chat.id
@@ -1756,28 +1689,31 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
         print(f"Error in handle_blackjack_button: {e}")
 
 def main():
-    # Create the Application
-    app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
-    
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("free", free))
-    app.add_handler(CommandHandler("farm", farm))
-    app.add_handler(CommandHandler("upgrade_farm", upgrade_farm))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("opencase", opencase))
-    app.add_handler(CommandHandler("shop", shop))
-    app.add_handler(CommandHandler("inventory", inventory))
-    app.add_handler(CommandHandler("coinflip", coinflip))
-    app.add_handler(CommandHandler("blackjack", blackjack))
-    app.add_handler(CommandHandler("mines", mines))
-    app.add_handler(CommandHandler("reset", reset_game))
-    app.add_handler(CommandHandler("cleanup", manual_cleanup))  # Admin command for manual cleanup
-    app.add_handler(CallbackQueryHandler(handle_button))
-    
-    # Start the Bot
-    print("Бот запущен!")
-    app.run_polling()
+    try:
+        # Create the Application
+        app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+        
+        # Add handlers
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("free", free))
+        app.add_handler(CommandHandler("farm", farm))
+        app.add_handler(CommandHandler("upgrade_farm", upgrade_farm))
+        app.add_handler(CommandHandler("balance", balance))
+        app.add_handler(CommandHandler("opencase", opencase))
+        app.add_handler(CommandHandler("shop", shop))
+        app.add_handler(CommandHandler("inventory", inventory))
+        app.add_handler(CommandHandler("coinflip", coinflip))
+        app.add_handler(CommandHandler("blackjack", blackjack))
+        app.add_handler(CommandHandler("mines", mines))
+        app.add_handler(CommandHandler("reset", reset_game))
+        app.add_handler(CommandHandler("cleanup", manual_cleanup))  # Admin command for manual cleanup
+        app.add_handler(CallbackQueryHandler(handle_button))
+        
+        # Start the Bot
+        print("Бот запущен!")
+        app.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Error starting bot: {e}")
 
 if __name__ == "__main__":
     main()
