@@ -22,8 +22,11 @@ max_farm_values = {}  # Track maximum farm values
 farm_cooldowns = {}  # Track farm cooldowns
 case_cooldowns = {}  # Track case opening cooldowns
 user_inventories = {}  # Track user inventories
+item_experience = {}  # Track item experience
+item_levels = {}  # Track item levels
 farm_fail_chances = {}  # Track farm fail chances for users
 blackjack_games = {}  # Track active blackjack games
+crash_games = {}  # Track active crash games
 
 # Game configuration
 MIN_BET = 5
@@ -37,6 +40,22 @@ FARM_STARTING_VALUE = 5
 MAX_FARM_VALUE = 500  # Maximum value farm can produce
 FARM_FAIL_CHANCE = 10  # Percentage chance of failing
 CASE_COOLDOWN_SECONDS = 5  # Anti-spam cooldown for case opening
+
+# Experience configuration
+EXP_PER_WIN = {
+    "mines": 10,
+    "coinflip": 5,
+    "blackjack": 8,
+    "crash": 12
+}
+MAX_EXP_BY_LEVEL = {
+    1: 100,
+    2: 250,
+    3: 500,
+    4: 1000,
+    5: 2000
+}
+MAX_ITEM_LEVEL = 5  # Maximum level for items
 
 # Case configuration
 CASE_COSTS = {
@@ -58,21 +77,56 @@ SHOP_ITEMS = {
         "name": "Защитная аура",
         "emoji": "🛡️",
         "description": "10% шанс спастись от мины в игре Mines (одноразовое использование)",
-        "price": 150
+        "price": 150,
+        "upgrades": {
+            1: "Базовая защитная аура (10% шанс защиты)",
+            2: "Улучшенная защитная аура (15% шанс защиты)",
+            3: "Продвинутая защитная аура (20% шанс защиты)",
+            4: "Элитная защитная аура (25% шанс защиты)",
+            5: "Легендарная защитная аура (30% шанс защиты)"
+        }
     },
     "2": {
         "id": "2",
         "name": "Счастливая монета",
         "emoji": "🪙",
         "description": "Увеличивает шанс выигрыша в игре Coinflip на 5%",
-        "price": 200
+        "price": 200,
+        "upgrades": {
+            1: "Базовая счастливая монета (5% к шансу выигрыша)",
+            2: "Улучшенная счастливая монета (8% к шансу выигрыша)",
+            3: "Продвинутая счастливая монета (12% к шансу выигрыша)",
+            4: "Элитная счастливая монета (15% к шансу выигрыша)",
+            5: "Легендарная счастливая монета (20% к шансу выигрыша)"
+        }
     },
     "3": {
         "id": "3",
         "name": "Радар опасности",
         "emoji": "📡",
-        "description": "20% шанс обнаружить область 2x2 с миной, 7.5% шанс самоуничтожения при нажатии на мину",
-        "price": 350
+        "description": "20% шанс обнаружить область 2x2 с миной, 1% шанс самоуничтожения при нажатии на мину",
+        "price": 350,
+        "upgrades": {
+            1: "Базовый радар (20% шанс обнаружения, 1% шанс самоуничтожения)",
+            2: "Улучшенный радар (25% шанс обнаружения, 0.8% шанс самоуничтожения)",
+            3: "Продвинутый радар (30% шанс обнаружения, 0.6% шанс самоуничтожения)",
+            4: "Элитный радар (35% шанс обнаружения, 0.4% шанс самоуничтожения)",
+            5: "Легендарный радар (40% шанс обнаружения, 0.2% шанс самоуничтожения)"
+        }
+    },
+    "4": {
+        "id": "4",
+        "name": "Анти-краш щит",
+        "emoji": "🔰",
+        "description": "10% шанс спастись от взрыва в игре Crash (одноразовое использование)",
+        "price": 400,
+        "upgrades": {
+            1: "Базовый щит (10% шанс спасения от взрыва)",
+            2: "Улучшенный щит (15% шанс спасения от взрыва)",
+            3: "Продвинутый щит (20% шанс спасения от взрыва)",
+            4: "Элитный щит (25% шанс спасения от взрыва)",
+            5: "Легендарный щит (30% шанс спасения от взрыва)"
+        }
     }
 }
 
@@ -80,7 +134,43 @@ SHOP_ITEMS = {
 ITEM_ID_MAP = {
     "1": "defending_aura",
     "2": "lucky_coin",
-    "3": "danger_radar"
+    "3": "danger_radar",
+    "4": "anti_crash_shield"
+}
+
+# Reverse mapping
+ITEM_KEY_TO_ID = {v: k for k, v in ITEM_ID_MAP.items()}
+
+# Item effects by level
+ITEM_EFFECTS = {
+    "defending_aura": {  # Chance to save from mine
+        1: 0.10,
+        2: 0.15,
+        3: 0.20,
+        4: 0.25,
+        5: 0.30
+    },
+    "lucky_coin": {  # Additional chance to win coinflip
+        1: 5,
+        2: 8,
+        3: 12,
+        4: 15,
+        5: 20
+    },
+    "danger_radar": {  # Chance to detect mines, chance to self-destruct
+        1: {"detect": 0.20, "explode": 0.01},
+        2: {"detect": 0.25, "explode": 0.008},
+        3: {"detect": 0.30, "explode": 0.006},
+        4: {"detect": 0.35, "explode": 0.004},
+        5: {"detect": 0.40, "explode": 0.002}
+    },
+    "anti_crash_shield": {  # Chance to save from crash
+        1: 0.10,
+        2: 0.15,
+        3: 0.20,
+        4: 0.25,
+        5: 0.30
+    }
 }
 
 # Card suits and values for Blackjack
@@ -106,10 +196,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "📋 Доступные команды:\n"
         text += "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
         text += "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
+        text += "▫️ /crash [ставка] - Игра в Crash\n"
         text += "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
         text += "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
         text += "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
         text += "▫️ /upgrade_farm [режим] - Улучшить ферму\n"
+        text += "▫️ /upgrade_inv [ID] - Улучшить предмет в инвентаре\n"
         text += "▫️ /opencase [1-3] - Открыть кейс с призами\n"
         text += "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
         text += "▫️ /inventory - Посмотреть свой инвентарь\n"
@@ -409,12 +501,110 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
         )
 
+async def upgrade_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Initialize user data if not exists
+    if user_id not in user_inventories:
+        user_inventories[user_id] = {}
+    
+    if user_id not in item_experience:
+        item_experience[user_id] = {}
+        
+    if user_id not in item_levels:
+        item_levels[user_id] = {}
+    
+    # Check arguments
+    if not context.args or len(context.args) != 1:
+        await update.message.reply_text(
+            "ℹ️ Использование: /upgrade_inv [ID предмета]\n\n"
+            "Пример: /upgrade_inv 1\n\n"
+            "Проверьте свой инвентарь с помощью команды /inventory, чтобы узнать ID предметов и их опыт."
+        )
+        return
+    
+    item_id = context.args[0]
+    
+    # Check if item ID is valid
+    if item_id not in SHOP_ITEMS:
+        await update.message.reply_text(
+            "❌ Ошибка! Указан неверный ID предмета.\n\n"
+            "Проверьте свой инвентарь с помощью команды /inventory, чтобы узнать правильные ID."
+        )
+        return
+    
+    # Convert item ID to internal key
+    item_key = ITEM_ID_MAP[item_id]
+    
+    # Check if user has this item
+    if item_key not in user_inventories[user_id] or user_inventories[user_id][item_key] <= 0:
+        await update.message.reply_text(
+            f"❌ Ошибка! У вас нет предмета с ID {item_id} в инвентаре.\n\n"
+            f"Вы можете приобрести его в магазине: /shop buy {item_id}"
+        )
+        return
+    
+    # Initialize item experience and level if not exists
+    if item_key not in item_experience[user_id]:
+        item_experience[user_id][item_key] = 0
+        
+    if item_key not in item_levels[user_id]:
+        item_levels[user_id][item_key] = 1
+    
+    current_level = item_levels[user_id][item_key]
+    current_exp = item_experience[user_id][item_key]
+    
+    # Check if item is already at max level
+    if current_level >= MAX_ITEM_LEVEL:
+        await update.message.reply_text(
+            f"⭐ Предмет {SHOP_ITEMS[item_id]['name']} уже достиг максимального уровня ({MAX_ITEM_LEVEL})!\n\n"
+            f"Этот предмет нельзя улучшить дальше."
+        )
+        return
+    
+    # Check if enough experience
+    max_exp_needed = MAX_EXP_BY_LEVEL[current_level]
+    
+    if current_exp < max_exp_needed:
+        await update.message.reply_text(
+            f"❌ Недостаточно опыта для улучшения предмета!\n\n"
+            f"Предмет: {SHOP_ITEMS[item_id]['emoji']} {SHOP_ITEMS[item_id]['name']} (Уровень {current_level})\n"
+            f"Текущий опыт: {current_exp}/{max_exp_needed}\n"
+            f"Необходимо ещё: {max_exp_needed - current_exp} опыта\n\n"
+            f"Опыт накапливается за победы в играх."
+        )
+        return
+    
+    # Upgrade item
+    item_levels[user_id][item_key] += 1
+    item_experience[user_id][item_key] = 0  # Reset experience
+    
+    new_level = item_levels[user_id][item_key]
+    
+    # Get upgrade description
+    upgrade_description = SHOP_ITEMS[item_id]['upgrades'][new_level]
+    
+    await update.message.reply_text(
+        f"🌟 Предмет успешно улучшен!\n\n"
+        f"{SHOP_ITEMS[item_id]['emoji']} {SHOP_ITEMS[item_id]['name']}\n"
+        f"Уровень: {current_level} → {new_level}\n\n"
+        f"Новые характеристики:\n"
+        f"{upgrade_description}\n\n"
+        f"Опыт сброшен до 0/{MAX_EXP_BY_LEVEL[new_level]}"
+    )
+
 async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
     
     if user_id not in user_inventories:
         user_inventories[user_id] = {}
+        
+    if user_id not in item_experience:
+        item_experience[user_id] = {}
+        
+    if user_id not in item_levels:
+        item_levels[user_id] = {}
     
     # Check if inventory is empty
     if not user_inventories[user_id]:
@@ -429,20 +619,29 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inventory_text = f"📦 Инвентарь пользователя {user_name}\n\n"
     
     # Convert internal item keys to their display names
-    reverse_item_map = {v: k for k, v in ITEM_ID_MAP.items()}
-    
     for item_key, count in user_inventories[user_id].items():
         if count > 0:
             # Find the item ID from the reverse map
-            item_id = reverse_item_map.get(item_key)
+            item_id = ITEM_KEY_TO_ID.get(item_key)
             if item_id and item_id in SHOP_ITEMS:
                 item = SHOP_ITEMS[item_id]
-                inventory_text += f"{item['emoji']} {item['name']} - {count} шт.\n"
-                inventory_text += f"└ {item['description']}\n"
+                
+                # Get item level and experience
+                level = item_levels[user_id].get(item_key, 1)
+                exp = item_experience[user_id].get(item_key, 0)
+                max_exp = MAX_EXP_BY_LEVEL.get(level, 100)
+                
+                # Get upgrade description
+                upgrade_desc = item['upgrades'][level]
+                
+                inventory_text += f"{item['emoji']} {item['name']} - {count} шт. | Уровень {level}\n"
+                inventory_text += f"└ {upgrade_desc}\n"
+                inventory_text += f"└ Опыт: {exp}/{max_exp}\n"
                 inventory_text += f"└ ID: {item['id']}\n\n"
     
     inventory_text += f"💰 Ваш баланс: {user_balances[user_id]} ktn$\n\n"
-    inventory_text += "Предметы можно приобрести в магазине: /shop stock"
+    inventory_text += "Предметы можно приобрести в магазине: /shop stock\n"
+    inventory_text += "Для улучшения предмета используйте: /upgrade_inv [ID]"
     
     await update.message.reply_text(inventory_text)
 
@@ -517,6 +716,17 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if internal_key not in user_inventories[user_id]:
             user_inventories[user_id][internal_key] = 0
+            
+        # Initialize experience and level if first purchase
+        if internal_key not in item_experience.get(user_id, {}):
+            if user_id not in item_experience:
+                item_experience[user_id] = {}
+            item_experience[user_id][internal_key] = 0
+            
+        if internal_key not in item_levels.get(user_id, {}):
+            if user_id not in item_levels:
+                item_levels[user_id] = {}
+            item_levels[user_id][internal_key] = 1
         
         user_inventories[user_id][internal_key] += 1
         
@@ -535,6 +745,33 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Доступные действия: buy, stock"
         )
 
+# Function to add experience to items after winning games
+def add_experience(user_id, game_type):
+    if user_id not in item_experience:
+        item_experience[user_id] = {}
+        
+    if user_id not in item_levels:
+        item_levels[user_id] = {}
+        
+    if user_id not in user_inventories:
+        return
+    
+    # Get experience amount based on game type
+    exp_amount = EXP_PER_WIN.get(game_type, 5)
+    
+    # Add experience to all items in inventory
+    for item_key in user_inventories[user_id]:
+        if user_inventories[user_id][item_key] > 0:
+            # Initialize if not exists
+            if item_key not in item_experience[user_id]:
+                item_experience[user_id][item_key] = 0
+                
+            if item_key not in item_levels[user_id]:
+                item_levels[user_id][item_key] = 1
+            
+            # Add experience
+            item_experience[user_id][item_key] += exp_amount
+
 async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -544,6 +781,9 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id not in user_inventories:
         user_inventories[user_id] = {}
+        
+    if user_id not in item_levels:
+        item_levels[user_id] = {}
     
     # Check arguments
     if len(context.args) != 2:
@@ -627,7 +867,16 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check if user has lucky coin and apply bonus
     has_lucky_coin = user_inventories.get(user_id, {}).get("lucky_coin", 0) > 0
-    bonus_chance = 5 if has_lucky_coin else 0
+    
+    # Get level of lucky coin if user has it
+    lucky_coin_level = 1
+    if has_lucky_coin and "lucky_coin" in item_levels.get(user_id, {}):
+        lucky_coin_level = item_levels[user_id]["lucky_coin"]
+    
+    # Get bonus based on level
+    bonus_chance = 0
+    if has_lucky_coin:
+        bonus_chance = ITEM_EFFECTS["lucky_coin"][lucky_coin_level]
     
     # Determine result (slightly biased if user has lucky coin)
     if has_lucky_coin and player_choice == "heads":
@@ -652,6 +901,9 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winnings = bet * 2
         user_balances[user_id] += winnings
         result_text = f"🎉 Вы выиграли!\n💰 Выигрыш: {winnings} ktn$"
+        
+        # Add experience to items
+        add_experience(user_id, "coinflip")
     else:
         winnings = 0
         result_text = "❌ Вы проиграли!\n💰 Ставка потеряна."
@@ -659,7 +911,7 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Bonus info if lucky coin was used
     bonus_text = ""
     if has_lucky_coin:
-        bonus_text = f"\n🪙 Счастливая монета дала вам +{bonus_chance}% к шансу выигрыша!"
+        bonus_text = f"\n🪙 Счастливая монета (Уровень {lucky_coin_level}) дала вам +{bonus_chance}% к шансу выигрыша!"
     
     # Final message
     await context.bot.edit_message_text(
@@ -837,6 +1089,14 @@ async def reset_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Теперь вы можете начать новую игру."
         )
         return
+        
+    if user_id in crash_games:
+        del crash_games[user_id]
+        await update.message.reply_text(
+            "🔄 Ваша игра в Crash успешно сброшена!\n"
+            "Теперь вы можете начать новую игру."
+        )
+        return
     
     await update.message.reply_text(
         "ℹ️ У вас нет активных игр, которые нужно сбросить."
@@ -851,11 +1111,13 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Count before cleanup
     count_before = len(active_games)
     count_blackjack_before = len(blackjack_games)
+    count_crash_before = len(crash_games)
     
     # Find stale games (older than 1 hour)
     current_time = datetime.now()
     stale_game_users = []
     stale_blackjack_users = []
+    stale_crash_users = []
     
     for user_id, game in active_games.items():
         if 'start_time' not in game:
@@ -874,6 +1136,15 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time_diff = current_time - game['start_time']
         if time_diff > timedelta(hours=1):
             stale_blackjack_users.append(user_id)
+            
+    for user_id, game in crash_games.items():
+        if 'start_time' not in game:
+            game['start_time'] = current_time
+            continue
+            
+        time_diff = current_time - game['start_time']
+        if time_diff > timedelta(hours=1):
+            stale_crash_users.append(user_id)
     
     # Remove stale games
     for user_id in stale_game_users:
@@ -894,10 +1165,15 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user_id in stale_blackjack_users:
         if user_id in blackjack_games:
             del blackjack_games[user_id]
+            
+    for user_id in stale_crash_users:
+        if user_id in crash_games:
+            del crash_games[user_id]
     
     # Report results
     count_after = len(active_games)
     count_blackjack_after = len(blackjack_games)
+    count_crash_after = len(crash_games)
     
     await update.message.reply_text(
         f"🧹 Очистка завершена\n\n"
@@ -908,7 +1184,11 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Игры Blackjack:\n"
         f"- Было: {count_blackjack_before}\n"
         f"- Удалено: {count_blackjack_before - count_blackjack_after}\n"
-        f"- Осталось: {count_blackjack_after}"
+        f"- Осталось: {count_blackjack_after}\n\n"
+        f"Игры Crash:\n"
+        f"- Было: {count_crash_before}\n"
+        f"- Удалено: {count_crash_before - count_crash_after}\n"
+        f"- Осталось: {count_crash_after}"
     )
 
 async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -920,6 +1200,9 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id not in user_inventories:
         user_inventories[user_id] = {}
+        
+    if user_id not in item_levels:
+        item_levels[user_id] = {}
     
     # Check if user already has an active game
     if user_id in active_games:
@@ -932,6 +1215,13 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in blackjack_games:
         await update.message.reply_text(
             "⚠️ У вас уже есть активная игра в Блэкджек!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
+        )
+        return
+        
+    if user_id in crash_games:
+        await update.message.reply_text(
+            "⚠️ У вас уже есть активная игра в Crash!\n"
             "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
         )
         return
@@ -985,22 +1275,37 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     has_aura = user_inventories.get(user_id, {}).get("defending_aura", 0) > 0
     has_radar = user_inventories.get(user_id, {}).get("danger_radar", 0) > 0
     
-    # Decide if radar activates (20% chance)
-    radar_activated = has_radar and random.random() < 0.2
+    # Get item levels
+    aura_level = 1
+    radar_level = 1
+    
+    if has_aura and "defending_aura" in item_levels.get(user_id, {}):
+        aura_level = item_levels[user_id]["defending_aura"]
+        
+    if has_radar and "danger_radar" in item_levels.get(user_id, {}):
+        radar_level = item_levels[user_id]["danger_radar"]
+    
+    # Decide if radar activates
+    radar_activated = False
     radar_area = []
     
-    if radar_activated:
-        # Choose one random mine
-        mine_position = random.choice(mine_positions)
-        row = mine_position // COLS
-        col = mine_position % COLS
+    if has_radar:
+        # Get radar detection chance based on level
+        radar_chance = ITEM_EFFECTS["danger_radar"][radar_level]["detect"]
+        radar_activated = random.random() < radar_chance
         
-        # Create a 2x2 area around the mine
-        for r in range(max(0, row-1), min(ROWS, row+2)):
-            for c in range(max(0, col-1), min(COLS, col+2)):
-                pos = r * COLS + c
-                if 0 <= pos < TOTAL_TILES:
-                    radar_area.append(pos)
+        if radar_activated:
+            # Choose one random mine
+            mine_position = random.choice(mine_positions)
+            row = mine_position // COLS
+            col = mine_position % COLS
+            
+            # Create a 2x2 area around the mine
+            for r in range(max(0, row-1), min(ROWS, row+2)):
+                for c in range(max(0, col-1), min(COLS, col+2)):
+                    pos = r * COLS + c
+                    if 0 <= pos < TOTAL_TILES:
+                        radar_area.append(pos)
     
     # Create game state
     game_state = {
@@ -1018,6 +1323,8 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "start_time": datetime.now(),  # Track when the game started
         "has_aura": has_aura,
         "has_radar": has_radar,
+        "aura_level": aura_level,
+        "radar_level": radar_level,
         "aura_used": False,
         "radar_used": radar_activated
     }
@@ -1037,12 +1344,26 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         # Calculate multiplier based on revealed safe tiles
         revealed_count = len(game["revealed_positions"])
         
-        # Calculate current multiplier
+        # Calculate current multiplier with enhanced formula
         mines_left = game["num_mines"]
         tiles_left = TOTAL_TILES - revealed_count
         
+        # Improved multiplier formula that scales better with mines and revealed tiles
         if tiles_left > mines_left:
-            multiplier = round((tiles_left / (tiles_left - mines_left)) * (1 + (revealed_count * 0.1)), 2)
+            # Base multiplier calculation
+            base_multiplier = tiles_left / (tiles_left - mines_left)
+            
+            # Apply bonus for more revealed tiles
+            bonus = revealed_count * 0.15
+            
+            # Apply bonus for more mines (higher risk)
+            mines_bonus = (mines_left / TOTAL_TILES) * 2.0
+            
+            # Special case for almost all tiles revealed
+            if revealed_count >= TOTAL_TILES - mines_left - 1:
+                bonus *= 2  # Double bonus for high risk plays
+            
+            multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
         else:
             multiplier = 1.0
         
@@ -1109,7 +1430,8 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             
             # Add aura info if available
             if game["has_aura"] and not game["aura_used"]:
-                status += "\n🛡️ Защитная аура активна (10% шанс защиты от мины)"
+                aura_chance = ITEM_EFFECTS["defending_aura"][game["aura_level"]] * 100
+                status += f"\n🛡️ Защитная аура (Уровень {game['aura_level']}) активна ({aura_chance}% шанс защиты от мины)"
             elif game["aura_used"]:
                 status += "\n🛡️ Защитная аура использована!"
                 
@@ -1118,7 +1440,8 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                 if game["radar_used"]:
                     status += "\n📡 Радар опасности обнаружил подозрительную область (❓)"
                 else:
-                    status += "\n📡 Радар опасности активен (20% шанс обнаружения мин)"
+                    radar_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["detect"] * 100
+                    status += f"\n📡 Радар опасности (Уровень {game['radar_level']}) активен ({radar_chance}% шанс обнаружения мин)"
                 
             status += "\n\nНажимайте на клетки, чтобы открыть их!"
         
@@ -1196,6 +1519,11 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if callback_parts[0] == "bj":
             await handle_blackjack_button(update, context, query, callback_parts)
             return
+            
+        # Handle crash callbacks
+        if callback_parts[0] == "crash":
+            await handle_crash_button(update, context, query, callback_parts)
+            return
         
         # Extract user_id from callback data for mines game
         game_owner_id = int(callback_parts[-1])
@@ -1222,13 +1550,27 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Handle cashout
         if callback_parts[0] == "cashout":
-            # Calculate win amount
+            # Calculate win amount with improved multiplier
             revealed_count = len(game["revealed_positions"])
             mines_left = game["num_mines"]
             tiles_left = TOTAL_TILES - revealed_count
             
+            # Improved multiplier formula
             if tiles_left > mines_left:
-                multiplier = round((tiles_left / (tiles_left - mines_left)) * (1 + (revealed_count * 0.1)), 2)
+                # Base multiplier calculation
+                base_multiplier = tiles_left / (tiles_left - mines_left)
+                
+                # Apply bonus for more revealed tiles
+                bonus = revealed_count * 0.15
+                
+                # Apply bonus for more mines (higher risk)
+                mines_bonus = (mines_left / TOTAL_TILES) * 2.0
+                
+                # Special case for almost all tiles revealed
+                if revealed_count >= TOTAL_TILES - mines_left - 1:
+                    bonus *= 2  # Double bonus for high risk plays
+                
+                multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
             else:
                 multiplier = 1.0
             
@@ -1241,6 +1583,9 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Update user balance
             user_balances[game_owner_id] += win_amount
+            
+            # Add experience to items
+            add_experience(game_owner_id, "mines")
             
             # Reveal all mines
             await show_all_mines(update, context, game_owner_id)
@@ -1273,33 +1618,41 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Check if tile is a mine
             if position in game["mine_positions"]:
-                # Check if danger radar might explode (7.5% chance)
-                if game["has_radar"] and random.random() < 0.075:
-                    # Radar explodes
-                    if "danger_radar" in user_inventories[game_owner_id]:
-                        user_inventories[game_owner_id]["danger_radar"] -= 1
+                # Check if danger radar might explode
+                if game["has_radar"]:
+                    # Get explode chance based on level
+                    explode_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["explode"]
                     
-                    await query.answer("📡 Ваш радар опасности самоуничтожился!", show_alert=True)
-                    game["has_radar"] = False
+                    if random.random() < explode_chance:
+                        # Radar explodes
+                        if "danger_radar" in user_inventories[game_owner_id]:
+                            user_inventories[game_owner_id]["danger_radar"] -= 1
+                        
+                        await query.answer("📡 Ваш радар опасности самоуничтожился!", show_alert=True)
+                        game["has_radar"] = False
                 
                 # Check if user has active aura
-                if game["has_aura"] and not game["aura_used"] and random.random() < 0.1:  # 10% chance
-                    # Aura activation - save the player
-                    game["aura_used"] = True
-                    game["protected_positions"].append(position)
+                if game["has_aura"] and not game["aura_used"]:
+                    # Get aura protection chance based on level
+                    aura_chance = ITEM_EFFECTS["defending_aura"][game["aura_level"]]
                     
-                    # Use up the aura
-                    if "defending_aura" in user_inventories[game_owner_id]:
-                        user_inventories[game_owner_id]["defending_aura"] -= 1
-                    
-                    # Reshuffle the mines
-                    remaining_positions = [p for p in range(TOTAL_TILES) if p not in game["revealed_positions"] and p not in game["protected_positions"]]
-                    game["mine_positions"] = random.sample(remaining_positions, min(game["num_mines"], len(remaining_positions)))
-                    
-                    # Update the game board
-                    await query.answer("🛡️ Защитная аура сработала! Вы спаслись от мины!", show_alert=True)
-                    await send_game_board(update, context, game_owner_id)
-                    return
+                    if random.random() < aura_chance:  # Chance to activate
+                        # Aura activation - save the player
+                        game["aura_used"] = True
+                        game["protected_positions"].append(position)
+                        
+                        # Use up the aura
+                        if "defending_aura" in user_inventories[game_owner_id]:
+                            user_inventories[game_owner_id]["defending_aura"] -= 1
+                        
+                        # Reshuffle the mines
+                        remaining_positions = [p for p in range(TOTAL_TILES) if p not in game["revealed_positions"] and p not in game["protected_positions"]]
+                        game["mine_positions"] = random.sample(remaining_positions, min(game["num_mines"], len(remaining_positions)))
+                        
+                        # Update the game board
+                        await query.answer("🛡️ Защитная аура сработала! Вы спаслись от мины!", show_alert=True)
+                        await send_game_board(update, context, game_owner_id)
+                        return
                 
                 # Game over - user hit a mine
                 game["game_over"] = True
@@ -1378,8 +1731,22 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         mines_left = game["num_mines"]
         tiles_left = TOTAL_TILES - revealed_count
         
+        # Calculate final multiplier with same formula as in send_game_board
         if tiles_left > mines_left:
-            multiplier = round((tiles_left / (tiles_left - mines_left)) * (1 + (revealed_count * 0.1)), 2)
+            # Base multiplier calculation
+            base_multiplier = tiles_left / (tiles_left - mines_left)
+            
+            # Apply bonus for more revealed tiles
+            bonus = revealed_count * 0.15
+            
+            # Apply bonus for more mines (higher risk)
+            mines_bonus = (mines_left / TOTAL_TILES) * 2.0
+            
+            # Special case for almost all tiles revealed
+            if revealed_count >= TOTAL_TILES - mines_left - 1:
+                bonus *= 2  # Double bonus for high risk plays
+            
+            multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
         else:
             multiplier = 1.0
             
@@ -1408,6 +1775,401 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         )
     except Exception as e:
         print(f"Error in show_all_mines: {e}")
+
+# Crash game functions
+async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    if user_id not in user_balances:
+        user_balances[user_id] = 0
+    
+    if user_id not in user_inventories:
+        user_inventories[user_id] = {}
+        
+    if user_id not in item_levels:
+        item_levels[user_id] = {}
+    
+    # Check if user already has an active game
+    if user_id in active_games:
+        await update.message.reply_text(
+            "⚠️ У вас уже есть активная игра в Mines!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
+        )
+        return
+    
+    if user_id in blackjack_games:
+        await update.message.reply_text(
+            "⚠️ У вас уже есть активная игра в Блэкджек!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
+        )
+        return
+        
+    if user_id in crash_games:
+        await update.message.reply_text(
+            "⚠️ У вас уже есть активная игра в Crash!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
+        )
+        return
+    
+    # Parse arguments
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "ℹ️ Использование: /crash [ставка]\n\n"
+            "Пример: /crash 50\n\n"
+            "Правила игры:\n"
+            "• Ракета взлетает и множитель постоянно растет\n"
+            "• Чем дольше ждете, тем выше множитель\n"
+            "• Но в любой момент ракета может взорваться и вы потеряете ставку\n"
+            "• Нажмите кнопку 'Забрать выигрыш', чтобы получить текущий множитель"
+        )
+        return
+    
+    try:
+        bet = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Ошибка! Ставка должна быть числом."
+        )
+        return
+    
+    # Validate bet
+    if bet < MIN_BET:
+        await update.message.reply_text(
+            f"❌ Ошибка! Минимальная ставка: {MIN_BET} ktn$."
+        )
+        return
+    
+    if bet > user_balances[user_id]:
+        await update.message.reply_text(
+            f"❌ Недостаточно средств!\n\n"
+            f"Ваш баланс: {user_balances[user_id]} ktn$\n"
+            f"Требуется: {bet} ktn$"
+        )
+        return
+    
+    # Deduct bet from balance
+    user_balances[user_id] -= bet
+    
+    # Check if user has anti-crash shield
+    has_shield = user_inventories.get(user_id, {}).get("anti_crash_shield", 0) > 0
+    
+    # Get shield level if user has it
+    shield_level = 1
+    if has_shield and "anti_crash_shield" in item_levels.get(user_id, {}):
+        shield_level = item_levels[user_id]["anti_crash_shield"]
+    
+    # Determine crash point (where the rocket will explode)
+    # Higher values are less likely
+    crash_point = 1.0
+    r = random.random()
+    
+    # This formula creates an exponential distribution
+    # Most crashes happen at low multipliers, some at high
+    if r < 0.4:  # 40% chance to crash below 2x
+        crash_point = 1.0 + r
+    elif r < 0.8:  # 40% chance to crash between 2x and 5x
+        crash_point = 2.0 + (r - 0.4) * 7.5
+    else:  # 20% chance to crash above 5x
+        crash_point = 5.0 + (r - 0.8) * 25
+    
+    crash_point = round(crash_point, 2)
+    
+    # Create game state
+    game_state = {
+        "bet": bet,
+        "current_multiplier": 1.0,
+        "crash_point": crash_point,
+        "game_over": False,
+        "win": False,
+        "user_id": user_id,
+        "user_name": user_name,
+        "chat_id": update.effective_chat.id,
+        "start_time": datetime.now(),
+        "has_shield": has_shield,
+        "shield_level": shield_level,
+        "shield_used": False
+    }
+    
+    crash_games[user_id] = game_state
+    
+    # Create and send initial game board
+    initial_message = await update.message.reply_text(
+        f"🚀 *CRASH* | Игрок: {user_name}\n\n"
+        f"💰 Ставка: {bet} ktn$\n"
+        f"📈 Текущий множитель: 1.00x\n"
+        f"💎 Потенциальный выигрыш: {bet} ktn$\n\n"
+        f"⏳ Ракета взлетает...\n"
+        f"🔥 Нажмите кнопку, чтобы забрать выигрыш до взрыва!",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("💰 ЗАБРАТЬ ВЫИГРЫШ (1.00x) 💰", callback_data=f"crash_cashout_{user_id}")
+        ]]),
+        parse_mode="Markdown"
+    )
+    
+    # Store message info
+    game_state["message_id"] = initial_message.message_id
+    
+    # Start the game loop in background
+    asyncio.create_task(crash_game_loop(context, user_id))
+
+async def crash_game_loop(context, user_id):
+    try:
+        # Safety check
+        if user_id not in crash_games:
+            return
+            
+        game = crash_games[user_id]
+        
+        # Loop until game is over
+        while not game["game_over"] and user_id in crash_games:
+            # Increase multiplier
+            game["current_multiplier"] += 0.05
+            game["current_multiplier"] = round(game["current_multiplier"], 2)
+            
+            # Calculate potential win
+            potential_win = round(game["bet"] * game["current_multiplier"])
+            
+            # Update message with new multiplier
+            status = (
+                f"🚀 *CRASH* | Игрок: {game['user_name']}\n\n"
+                f"💰 Ставка: {game['bet']} ktn$\n"
+                f"📈 Текущий множитель: {game['current_multiplier']}x\n"
+                f"💎 Потенциальный выигрыш: {potential_win} ktn$\n\n"
+            )
+            
+            # Add shield info if available
+            if game["has_shield"] and not game["shield_used"]:
+                shield_chance = ITEM_EFFECTS["anti_crash_shield"][game["shield_level"]] * 100
+                status += f"🔰 Анти-краш щит (Уровень {game['shield_level']}) активен ({shield_chance}% шанс спасения)\n"
+            elif game["shield_used"]:
+                status += f"🔰 Анти-краш щит уже использован!\n"
+            
+            # Rocket animation based on multiplier
+            rocket_stages = [
+                "🔥 Ракета взлетает...",
+                "🔥🔥 Ракета набирает высоту!",
+                "🔥🔥🔥 Ракета летит всё выше!",
+                "🔥🔥🔥🔥 Ракета на опасной высоте!",
+                "🔥🔥🔥🔥🔥 Ракета вот-вот взорвется!!!"
+            ]
+            
+            if game["current_multiplier"] < 2:
+                status += f"{rocket_stages[0]}\n"
+            elif game["current_multiplier"] < 3:
+                status += f"{rocket_stages[1]}\n"
+            elif game["current_multiplier"] < 5:
+                status += f"{rocket_stages[2]}\n"
+            elif game["current_multiplier"] < 10:
+                status += f"{rocket_stages[3]}\n"
+            else:
+                status += f"{rocket_stages[4]}\n"
+                
+            status += f"🔥 Нажмите кнопку, чтобы забрать выигрыш до взрыва!"
+            
+            # Update message
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=game["chat_id"],
+                    message_id=game["message_id"],
+                    text=status,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton(f"💰 ЗАБРАТЬ ВЫИГРЫШ ({game['current_multiplier']}x) 💰", 
+                                           callback_data=f"crash_cashout_{user_id}")
+                    ]]),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"Error updating crash message: {e}")
+            
+            # Check if crash point reached
+            if game["current_multiplier"] >= game["crash_point"]:
+                # Check if shield can save
+                shield_activated = False
+                if game["has_shield"] and not game["shield_used"]:
+                    # Get shield save chance based on level
+                    shield_chance = ITEM_EFFECTS["anti_crash_shield"][game["shield_level"]]
+                    
+                    if random.random() < shield_chance:
+                        # Shield saves from crash
+                        shield_activated = True
+                        game["shield_used"] = True
+                        
+                        # Use up the shield
+                        if "anti_crash_shield" in user_inventories[user_id]:
+                            user_inventories[user_id]["anti_crash_shield"] -= 1
+                        
+                        # Show shield activation message
+                        shield_message = (
+                            f"🚀 *CRASH* | Игрок: {game['user_name']}\n\n"
+                            f"🔰 *Анти-краш щит активировался!* Вы спаслись от взрыва!\n\n"
+                            f"💰 Ставка: {game['bet']} ktn$\n"
+                            f"📈 Текущий множитель: {game['current_multiplier']}x\n"
+                            f"💎 Потенциальный выигрыш: {potential_win} ktn$\n\n"
+                            f"⚠️ Щит можно использовать только один раз за игру!\n"
+                            f"🔥 Нажмите кнопку, чтобы забрать выигрыш до взрыва!"
+                        )
+                        
+                        try:
+                            await context.bot.edit_message_text(
+                                chat_id=game["chat_id"],
+                                message_id=game["message_id"],
+                                text=shield_message,
+                                reply_markup=InlineKeyboardMarkup([[
+                                    InlineKeyboardButton(f"💰 ЗАБРАТЬ ВЫИГРЫШ ({game['current_multiplier']}x) 💰", 
+                                                       callback_data=f"crash_cashout_{user_id}")
+                                ]]),
+                                parse_mode="Markdown"
+                            )
+                        except Exception:
+                            pass
+                        
+                        # Generate new crash point for continuation
+                        r = random.random()
+                        new_crash_point = game["current_multiplier"]
+                        
+                        if r < 0.5:  # 50% chance to crash soon after shield activation
+                            new_crash_point += 0.5 + r
+                        else:  # 50% chance to go much higher
+                            new_crash_point += 1.0 + r * 5
+                            
+                        game["crash_point"] = round(new_crash_point, 2)
+                        
+                        # Wait a moment to show shield activation
+                        await asyncio.sleep(1.5)
+                        continue
+                
+                if not shield_activated:
+                    # Game over - crash
+                    game["game_over"] = True
+                    
+                    # Show crash message
+                    crash_message = (
+                        f"🚀 *CRASH* | Игрок: {game['user_name']}\n\n"
+                        f"💥 *БУМ! Ракета взорвалась при {game['current_multiplier']}x!*\n\n"
+                        f"❌ Ставка {game['bet']} ktn$ потеряна.\n"
+                        f"🎮 Удачи в следующий раз!\n\n"
+                        f"⏱️ Сообщение будет удалено через 5 секунд"
+                    )
+                    
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=game["chat_id"],
+                            message_id=game["message_id"],
+                            text=crash_message,
+                            reply_markup=None,
+                            parse_mode="Markdown"
+                        )
+                    except Exception:
+                        pass
+                    
+                    # Schedule message deletion
+                    asyncio.create_task(delete_crash_message(context, game, 5))
+                    
+                    # Clean up
+                    if user_id in crash_games:
+                        del crash_games[user_id]
+                    
+                    break
+            
+            # Wait a bit before next update
+            # Higher multipliers update faster for more excitement
+            if game["current_multiplier"] < 2:
+                await asyncio.sleep(0.8)
+            elif game["current_multiplier"] < 5:
+                await asyncio.sleep(0.5)
+            elif game["current_multiplier"] < 10:
+                await asyncio.sleep(0.3)
+            else:
+                await asyncio.sleep(0.2)
+    
+    except Exception as e:
+        print(f"Error in crash game loop: {e}")
+        # Clean up on error
+        if user_id in crash_games:
+            del crash_games[user_id]
+
+async def delete_crash_message(context, game, delay_seconds):
+    await asyncio.sleep(delay_seconds)
+    try:
+        await context.bot.delete_message(
+            chat_id=game["chat_id"],
+            message_id=game["message_id"]
+        )
+    except Exception:
+        # If deletion fails, it's not critical
+        pass
+
+async def handle_crash_button(update: Update, context, query, callback_parts):
+    try:
+        action = callback_parts[1]
+        user_id = int(callback_parts[2])
+        caller_id = update.effective_user.id
+        
+        # Security check: Only game owner can press buttons
+        if caller_id != user_id:
+            await query.answer("Это не ваша игра! Вы не можете нажимать на кнопки в чужой игре.", show_alert=False)
+            return
+        
+        # Check if game exists
+        if user_id not in crash_games:
+            await query.answer("Игра не найдена! Возможно, она была сброшена.", show_alert=True)
+            return
+        
+        game = crash_games[user_id]
+        
+        # Check if game is over
+        if game["game_over"]:
+            await query.answer("Эта игра уже завершена!", show_alert=True)
+            return
+        
+        # Answer the callback query to stop loading indicator
+        await query.answer()
+        
+        # Handle cashout
+        if action == "cashout":
+            # Calculate win amount
+            win_amount = round(game["bet"] * game["current_multiplier"])
+            
+            # Update game state
+            game["game_over"] = True
+            game["win"] = True
+            game["win_amount"] = win_amount
+            
+            # Update user balance
+            user_balances[user_id] += win_amount
+            
+            # Add experience to items
+            add_experience(user_id, "crash")
+            
+            # Show win message
+            win_message = (
+                f"🚀 *CRASH* | Игрок: {game['user_name']}\n\n"
+                f"✅ *Вы успешно забрали выигрыш при {game['current_multiplier']}x!*\n\n"
+                f"💰 Ставка: {game['bet']} ktn$\n"
+                f"💎 Выигрыш: {win_amount} ktn$\n\n"
+                f"⏱️ Сообщение будет удалено через 5 секунд"
+            )
+            
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=game["chat_id"],
+                    message_id=game["message_id"],
+                    text=win_message,
+                    reply_markup=None,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+            
+            # Schedule message deletion
+            asyncio.create_task(delete_crash_message(context, game, 5))
+            
+            # Clean up
+            del crash_games[user_id]
+    
+    except Exception as e:
+        print(f"Error in handle_crash_button: {e}")
 
 # Blackjack game functions
 def create_deck():
@@ -1473,6 +2235,13 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in blackjack_games:
         await update.message.reply_text(
             "⚠️ У вас уже есть активная игра в Блэкджек!\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
+        )
+        return
+        
+    if user_id in crash_games:
+        await update.message.reply_text(
+            "⚠️ У вас уже есть активная игра в Crash!\n"
             "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить."
         )
         return
@@ -1557,6 +2326,8 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             game_state["result"] = "blackjack"
             winnings = int(bet * 2.5)
             user_balances[user_id] += winnings
+            # Add experience to items
+            add_experience(user_id, "blackjack")
         else:  # dealer_blackjack
             # Dealer has blackjack - player loses
             game_state["result"] = "dealer_blackjack"
@@ -1719,12 +2490,16 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
                 game["result"] = "dealer_bust"
                 winnings = game["bet"] * 2
                 user_balances[user_id] += winnings
+                # Add experience to items
+                add_experience(user_id, "blackjack")
             elif game["dealer_value"] > game["player_value"]:
                 game["result"] = "dealer_win"
             elif game["dealer_value"] < game["player_value"]:
                 game["result"] = "win"
                 winnings = game["bet"] * 2
                 user_balances[user_id] += winnings
+                # Add experience to items
+                add_experience(user_id, "blackjack")
             else:
                 game["result"] = "push"
                 user_balances[user_id] += game["bet"]  # Return bet
@@ -1785,6 +2560,8 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
                     new_game["result"] = "blackjack"
                     winnings = int(bet * 2.5)
                     user_balances[user_id] += winnings
+                    # Add experience to items
+                    add_experience(user_id, "blackjack")
                 else:  # dealer_blackjack
                     # Dealer has blackjack - player loses
                     new_game["result"] = "dealer_blackjack"
@@ -1805,12 +2582,14 @@ def main():
         app.add_handler(CommandHandler("free", free))
         app.add_handler(CommandHandler("farm", farm))
         app.add_handler(CommandHandler("upgrade_farm", upgrade_farm))
+        app.add_handler(CommandHandler("upgrade_inv", upgrade_inventory))
         app.add_handler(CommandHandler("balance", balance))
         app.add_handler(CommandHandler("opencase", opencase))
         app.add_handler(CommandHandler("shop", shop))
         app.add_handler(CommandHandler("inventory", inventory))
         app.add_handler(CommandHandler("coinflip", coinflip))
         app.add_handler(CommandHandler("blackjack", blackjack))
+        app.add_handler(CommandHandler("crash", crash))
         app.add_handler(CommandHandler("mines", mines))
         app.add_handler(CommandHandler("reset", reset_game))
         app.add_handler(CommandHandler("cleanup", manual_cleanup))  # Admin command for manual cleanup
