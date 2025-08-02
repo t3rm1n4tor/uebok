@@ -51,18 +51,26 @@ CASE_PRIZES = {
 
 # Shop items
 SHOP_ITEMS = {
-    "defending_aura": {
+    "1": {
+        "id": "1",
         "name": "Защитная аура",
         "emoji": "🛡️",
         "description": "10% шанс спастись от мины в игре Mines (одноразовое использование)",
         "price": 150
     },
-    "lucky_coin": {
+    "2": {
+        "id": "2",
         "name": "Счастливая монета",
         "emoji": "🪙",
         "description": "Увеличивает шанс выигрыша в игре Coinflip на 5%",
         "price": 200
     }
+}
+
+# Mapping from item ID to internal key
+ITEM_ID_MAP = {
+    "1": "defending_aura",
+    "2": "lucky_coin"
 }
 
 # Card suits and values for Blackjack
@@ -75,30 +83,34 @@ CARD_VALUES = {
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
+    
     if user_id not in user_balances:
         user_balances[user_id] = 0
     
     if user_id not in user_inventories:
         user_inventories[user_id] = {}
     
-    await update.message.reply_text(
-        f"🎮 *Добро пожаловать в игровой бот Mines, {user_name}!* 🎮\n\n"
-        f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-        "📋 *Доступные команды:*\n"
-        "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
-        "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
-        "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
-        "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
-        "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
-        "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
-        "▫️ /opencase [1-3] - Открыть кейс с призами\n"
-        "▫️ /shop [buy/stock] [предмет] - Магазин предметов\n"
-        "▫️ /inventory - Посмотреть свой инвентарь\n"
-        "▫️ /balance - Проверить баланс\n"
-        "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
-        "🎯 *Удачной игры!*",
-        parse_mode="Markdown"
-    )
+    try:
+        await update.message.reply_text(
+            f"🎮 *Добро пожаловать в игровой бот Mines, {user_name}!* 🎮\n\n"
+            f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
+            "📋 *Доступные команды:*\n"
+            "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
+            "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
+            "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
+            "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
+            "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
+            "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
+            "▫️ /opencase [1-3] - Открыть кейс с призами\n"
+            "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
+            "▫️ /inventory - Посмотреть свой инвентарь\n"
+            "▫️ /balance - Проверить баланс\n"
+            "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
+            "🎯 *Удачной игры!*",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Error in start command: {e}")
 
 async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -229,21 +241,24 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         farm_fail_chances[user_id] = FARM_FAIL_CHANCE
     
     # Check arguments
-    if len(context.args) != 2:
-        await update.message.reply_text(
-            "ℹ️ *Улучшение фермы*\n\n"
-            "*Использование:* /upgrade_farm [сумма] [режим]\n\n"
-            "*Доступные режимы:*\n"
-            "1 - Инвестировать в увеличение прибыли\n"
-            "2 - Инвестировать в защиту от неудач\n"
-            "3 - Инвестировать в снижение времени отката\n\n"
-            "*Текущие параметры фермы:*\n"
-            f"🌾 Доходность: *{farm_values[user_id]} ktn$*\n"
-            f"🛡️ Шанс неудачи: *{farm_fail_chances[user_id]}%*\n"
-            f"⏱️ Время отката: *{FARM_COOLDOWN_MINUTES} мин.*\n\n"
-            "Пример: `/upgrade_farm 100 1`",
-            parse_mode="Markdown"
-        )
+    if not context.args or len(context.args) != 2:
+        try:
+            await update.message.reply_text(
+                "ℹ️ *Улучшение фермы*\n\n"
+                "*Использование:* /upgrade_farm [сумма] [режим]\n\n"
+                "*Доступные режимы:*\n"
+                "1 - Инвестировать в увеличение прибыли\n"
+                "2 - Инвестировать в защиту от неудач\n"
+                "3 - Инвестировать в снижение времени отката\n\n"
+                "*Текущие параметры фермы:*\n"
+                f"🌾 Доходность: *{farm_values[user_id]} ktn$*\n"
+                f"🛡️ Шанс неудачи: *{farm_fail_chances[user_id]}%*\n"
+                f"⏱️ Время отката: *{FARM_COOLDOWN_MINUTES} мин.*\n\n"
+                "Пример: `/upgrade_farm 100 1`",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"Error in upgrade_farm info: {e}")
         return
     
     try:
@@ -361,11 +376,18 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Create inventory display
     inventory_text = f"📦 *Инвентарь пользователя {user_name}*\n\n"
     
-    for item_id, count in user_inventories[user_id].items():
-        if count > 0 and item_id in SHOP_ITEMS:
-            item = SHOP_ITEMS[item_id]
-            inventory_text += f"{item['emoji']} *{item['name']}* - {count} шт.\n"
-            inventory_text += f"└ {item['description']}\n\n"
+    # Convert internal item keys to their display names
+    reverse_item_map = {v: k for k, v in ITEM_ID_MAP.items()}
+    
+    for item_key, count in user_inventories[user_id].items():
+        if count > 0:
+            # Find the item ID from the reverse map
+            item_id = reverse_item_map.get(item_key)
+            if item_id and item_id in SHOP_ITEMS:
+                item = SHOP_ITEMS[item_id]
+                inventory_text += f"{item['emoji']} *{item['name']}* - {count} шт.\n"
+                inventory_text += f"└ {item['description']}\n"
+                inventory_text += f"└ ID: `{item['id']}`\n\n"
     
     inventory_text += f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
     inventory_text += "Предметы можно приобрести в магазине: `/shop stock`"
@@ -387,8 +409,8 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if len(context.args) < 1:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /shop [buy/stock] [предмет]\n\n"
-            "Пример: `/shop buy defending_aura` или `/shop stock`",
+            "ℹ️ *Использование:* /shop [buy/stock] [ID предмета]\n\n"
+            "Пример: `/shop buy 1` или `/shop stock`",
             parse_mode="Markdown"
         )
         return
@@ -402,10 +424,10 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for item_id, item in SHOP_ITEMS.items():
             stock_text += f"{item['emoji']} *{item['name']}* - {item['price']} ktn$\n"
             stock_text += f"└ {item['description']}\n"
-            stock_text += f"└ ID: `{item_id}`\n\n"
+            stock_text += f"└ ID: `{item['id']}`\n\n"
         
         stock_text += f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
-        stock_text += "Для покупки используйте: `/shop buy [предмет]`"
+        stock_text += "Для покупки используйте: `/shop buy [ID предмета]`"
         
         await update.message.reply_text(
             stock_text,
@@ -416,18 +438,18 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "buy":
         if len(context.args) < 2:
             await update.message.reply_text(
-                "❌ *Ошибка!* Укажите предмет для покупки.\n"
-                "Пример: `/shop buy defending_aura`\n\n"
+                "❌ *Ошибка!* Укажите ID предмета для покупки.\n"
+                "Пример: `/shop buy 1`\n\n"
                 "Для просмотра доступных предметов используйте: `/shop stock`",
                 parse_mode="Markdown"
             )
             return
         
-        item_id = context.args[1].lower()
+        item_id = context.args[1]
         
         if item_id not in SHOP_ITEMS:
             await update.message.reply_text(
-                "❌ *Ошибка!* Указанный предмет не найден.\n\n"
+                "❌ *Ошибка!* Указанный ID предмета не найден.\n\n"
                 "Для просмотра доступных предметов используйте: `/shop stock`",
                 parse_mode="Markdown"
             )
@@ -448,16 +470,19 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Process purchase
         user_balances[user_id] -= item["price"]
         
-        if item_id not in user_inventories[user_id]:
-            user_inventories[user_id][item_id] = 0
+        # Convert item ID to internal key
+        internal_key = ITEM_ID_MAP[item_id]
         
-        user_inventories[user_id][item_id] += 1
+        if internal_key not in user_inventories[user_id]:
+            user_inventories[user_id][internal_key] = 0
+        
+        user_inventories[user_id][internal_key] += 1
         
         await update.message.reply_text(
             f"✅ *Покупка успешна!*\n\n"
             f"{item['emoji']} Вы приобрели: *{item['name']}*\n"
             f"💰 Стоимость: *{item['price']} ktn$*\n"
-            f"📦 У вас в инвентаре: *{user_inventories[user_id][item_id]}* шт.\n\n"
+            f"📦 У вас в инвентаре: *{user_inventories[user_id][internal_key]}* шт.\n\n"
             f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
             parse_mode="Markdown"
         )
