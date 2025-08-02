@@ -18,6 +18,7 @@ user_balances = {}
 active_games = {}
 free_cooldowns = {}  # Track when users last used /free command
 farm_values = {}  # Track farm values for users
+max_farm_values = {}  # Track maximum farm values
 farm_cooldowns = {}  # Track farm cooldowns
 case_cooldowns = {}  # Track case opening cooldowns
 user_inventories = {}  # Track user inventories
@@ -33,6 +34,7 @@ FREE_COINS = 10
 FREE_COOLDOWN_MINUTES = 25
 FARM_COOLDOWN_MINUTES = 5  # Changed from 30 to 5 minutes
 FARM_STARTING_VALUE = 5
+MAX_FARM_VALUE = 500  # Maximum value farm can produce
 FARM_FAIL_CHANCE = 10  # Percentage chance of failing
 CASE_COOLDOWN_SECONDS = 5  # Anti-spam cooldown for case opening
 
@@ -64,13 +66,21 @@ SHOP_ITEMS = {
         "emoji": "🪙",
         "description": "Увеличивает шанс выигрыша в игре Coinflip на 5%",
         "price": 200
+    },
+    "3": {
+        "id": "3",
+        "name": "Радар опасности",
+        "emoji": "📡",
+        "description": "20% шанс обнаружить область 2x2 с миной, 7.5% шанс самоуничтожения при нажатии на мину",
+        "price": 350
     }
 }
 
 # Mapping from item ID to internal key
 ITEM_ID_MAP = {
     "1": "defending_aura",
-    "2": "lucky_coin"
+    "2": "lucky_coin",
+    "3": "danger_radar"
 }
 
 # Card suits and values for Blackjack
@@ -99,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
         text += "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
         text += "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
-        text += "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
+        text += "▫️ /upgrade_farm [режим] - Улучшить ферму\n"
         text += "▫️ /opencase [1-3] - Открыть кейс с призами\n"
         text += "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
         text += "▫️ /inventory - Посмотреть свой инвентарь\n"
@@ -155,6 +165,9 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in farm_values:
         farm_values[user_id] = FARM_STARTING_VALUE
         
+    if user_id not in max_farm_values:
+        max_farm_values[user_id] = MAX_FARM_VALUE
+        
     if user_id not in farm_fail_chances:
         farm_fail_chances[user_id] = FARM_FAIL_CHANCE
     
@@ -191,7 +204,10 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fail:
         # Farming failed
         farm_cooldowns[user_id] = current_time
+        
+        # Calculate next value with cap
         next_value = round(farm_values[user_id] * 1.5)
+        next_value = min(next_value, max_farm_values[user_id])
         
         await update.message.reply_text(
             f"❌ Неудача! Ваш урожай погиб!\n\n"
@@ -208,7 +224,10 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_value = farm_values[user_id]
         user_balances[user_id] += current_value
         farm_cooldowns[user_id] = current_time
+        
+        # Calculate next value with cap
         next_value = round(current_value * 1.5)
+        next_value = min(next_value, max_farm_values[user_id])
         
         await update.message.reply_text(
             f"✅ Успех! Вы собрали {current_value} ktn$ с вашей фермы!\n\n"
@@ -231,37 +250,81 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in farm_values:
         farm_values[user_id] = FARM_STARTING_VALUE
         
+    if user_id not in max_farm_values:
+        max_farm_values[user_id] = MAX_FARM_VALUE
+        
     if user_id not in farm_fail_chances:
         farm_fail_chances[user_id] = FARM_FAIL_CHANCE
     
     # Check arguments
-    if not context.args or len(context.args) != 2:
+    if not context.args:
         try:
             text = "ℹ️ Улучшение фермы\n\n"
-            text += "Использование: /upgrade_farm [сумма] [режим]\n\n"
+            text += "Использование: /upgrade_farm [режим] [сумма]\n\n"
             text += "Доступные режимы:\n"
             text += "1 - Инвестировать в увеличение прибыли\n"
             text += "2 - Инвестировать в защиту от неудач\n"
-            text += "3 - Инвестировать в снижение времени отката\n\n"
+            text += "3 - Инвестировать в снижение времени отката\n"
+            text += "4 - Увеличить максимальный объем урожая\n\n"
             text += "Текущие параметры фермы:\n"
             text += f"🌾 Доходность: {farm_values[user_id]} ktn$\n"
+            text += f"🌾 Максимальный объем: {max_farm_values[user_id]} ktn$\n"
             text += f"🛡️ Шанс неудачи: {farm_fail_chances[user_id]}%\n"
             text += f"⏱️ Время отката: {FARM_COOLDOWN_MINUTES} мин.\n\n"
-            text += "Пример: /upgrade_farm 100 1"
+            text += "Примеры:\n"
+            text += "/upgrade_farm 1 100 - Вложить 100 ktn$ в увеличение прибыли\n"
+            text += "/upgrade_farm 4 - Увеличить максимальный объем (стоимость будет рассчитана автоматически)"
             
             await update.message.reply_text(text)
         except Exception as e:
             print(f"Error in upgrade_farm info: {e}")
         return
+        
+    # Режим 4 - увеличение максимального объема фермы
+    if len(context.args) == 1 and context.args[0] == "4":
+        # Рассчитываем стоимость и новый объем
+        new_max_value = round(max_farm_values[user_id] * 1.5)
+        cost = max_farm_values[user_id] * 2
+        
+        # Проверяем, хватает ли денег
+        if user_balances[user_id] < cost:
+            await update.message.reply_text(
+                f"❌ Недостаточно средств для улучшения объема фермы!\n\n"
+                f"Чтобы улучшить объем фермы до {new_max_value} ktn$, вам надо {cost} ktn$\n\n"
+                f"Ваш баланс: {user_balances[user_id]} ktn$"
+            )
+            return
+            
+        # Обновляем максимальный объем
+        user_balances[user_id] -= cost
+        max_farm_values[user_id] = new_max_value
+        
+        await update.message.reply_text(
+            f"🌱 Максимальный объем фермы увеличен!\n\n"
+            f"💰 Инвестировано: {cost} ktn$\n"
+            f"📈 Новый максимальный объем: {new_max_value} ktn$\n\n"
+            f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
+        )
+        return
+    
+    # Стандартные режимы улучшения
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "❌ Ошибка! Неверное количество аргументов.\n\n"
+            "Используйте: /upgrade_farm [режим] [сумма]\n"
+            "Пример: /upgrade_farm 1 100\n\n"
+            "Или для улучшения объема: /upgrade_farm 4"
+        )
+        return
     
     try:
-        amount = int(context.args[0])
-        mode = int(context.args[1])
+        mode = int(context.args[0])
+        amount = int(context.args[1])
     except ValueError:
         await update.message.reply_text(
-            "❌ Ошибка! Сумма и режим должны быть числами.\n\n"
-            "Используйте: /upgrade_farm [сумма] [режим]\n"
-            "Пример: /upgrade_farm 100 1"
+            "❌ Ошибка! Режим и сумма должны быть числами.\n\n"
+            "Используйте: /upgrade_farm [режим] [сумма]\n"
+            "Пример: /upgrade_farm 1 100"
         )
         return
     
@@ -300,12 +363,16 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         percentage_increase = min(50, 5 * (1 + 0.2 * (amount / 100)))
         
         old_value = farm_values[user_id]
-        farm_values[user_id] = round(old_value * (1 + percentage_increase / 100), 1)
+        new_value = round(old_value * (1 + percentage_increase / 100), 1)
+        
+        # Ensure new value doesn't exceed max
+        new_value = min(new_value, max_farm_values[user_id])
+        farm_values[user_id] = new_value
         
         await update.message.reply_text(
             f"🌱 Ферма улучшена!\n\n"
             f"💰 Инвестировано: {amount} ktn$\n"
-            f"📈 Доходность увеличена: {old_value} ktn$ → {farm_values[user_id]} ktn$\n"
+            f"📈 Доходность увеличена: {old_value} ktn$ → {new_value} ktn$\n"
             f"📊 Процент увеличения: +{percentage_increase}%\n\n"
             f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
         )
@@ -914,8 +981,26 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_positions = list(range(TOTAL_TILES))
     mine_positions = random.sample(all_positions, num_mines)
     
-    # Check if user has defending aura
+    # Check if user has items
     has_aura = user_inventories.get(user_id, {}).get("defending_aura", 0) > 0
+    has_radar = user_inventories.get(user_id, {}).get("danger_radar", 0) > 0
+    
+    # Decide if radar activates (20% chance)
+    radar_activated = has_radar and random.random() < 0.2
+    radar_area = []
+    
+    if radar_activated:
+        # Choose one random mine
+        mine_position = random.choice(mine_positions)
+        row = mine_position // COLS
+        col = mine_position % COLS
+        
+        # Create a 2x2 area around the mine
+        for r in range(max(0, row-1), min(ROWS, row+2)):
+            for c in range(max(0, col-1), min(COLS, col+2)):
+                pos = r * COLS + c
+                if 0 <= pos < TOTAL_TILES:
+                    radar_area.append(pos)
     
     # Create game state
     game_state = {
@@ -924,6 +1009,7 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "mine_positions": mine_positions,
         "revealed_positions": [],
         "protected_positions": [],  # For defending aura
+        "radar_area": radar_area,  # For danger radar
         "game_over": False,
         "win": False,
         "user_id": user_id,
@@ -931,7 +1017,9 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "chat_id": update.effective_chat.id,
         "start_time": datetime.now(),  # Track when the game started
         "has_aura": has_aura,
-        "aura_used": False
+        "has_radar": has_radar,
+        "aura_used": False,
+        "radar_used": radar_activated
     }
     
     active_games[user_id] = game_state
@@ -971,6 +1059,9 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                 elif position in game["revealed_positions"]:
                     # This is a revealed safe tile
                     button_text = "✅"
+                elif position in game["radar_area"]:
+                    # This is a radar detected area
+                    button_text = "❓"
                 else:
                     # This is an unrevealed tile
                     button_text = "🔲"
@@ -1021,6 +1112,13 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                 status += "\n🛡️ Защитная аура активна (10% шанс защиты от мины)"
             elif game["aura_used"]:
                 status += "\n🛡️ Защитная аура использована!"
+                
+            # Add radar info if available
+            if game["has_radar"]:
+                if game["radar_used"]:
+                    status += "\n📡 Радар опасности обнаружил подозрительную область (❓)"
+                else:
+                    status += "\n📡 Радар опасности активен (20% шанс обнаружения мин)"
                 
             status += "\n\nНажимайте на клетки, чтобы открыть их!"
         
@@ -1175,6 +1273,15 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Check if tile is a mine
             if position in game["mine_positions"]:
+                # Check if danger radar might explode (7.5% chance)
+                if game["has_radar"] and random.random() < 0.075:
+                    # Radar explodes
+                    if "danger_radar" in user_inventories[game_owner_id]:
+                        user_inventories[game_owner_id]["danger_radar"] -= 1
+                    
+                    await query.answer("📡 Ваш радар опасности самоуничтожился!", show_alert=True)
+                    game["has_radar"] = False
+                
                 # Check if user has active aura
                 if game["has_aura"] and not game["aura_used"] and random.random() < 0.1:  # 10% chance
                     # Aura activation - save the player
