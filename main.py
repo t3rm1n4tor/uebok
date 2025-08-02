@@ -7,7 +7,9 @@ from telegram.ext import (
     ApplicationBuilder, 
     CommandHandler, 
     ContextTypes, 
-    CallbackQueryHandler
+    CallbackQueryHandler,
+    MessageHandler,
+    filters
 )
 from datetime import datetime, timedelta
 
@@ -51,8 +53,14 @@ SHOP_ITEMS = {
     "defending_aura": {
         "name": "Защитная аура",
         "emoji": "🛡️",
-        "description": "10% шанс спастись от мины в игре минки (одноразовое использование)",
+        "description": "10% шанс спастись от мины в игре Mines (одноразовое использование)",
         "price": 150
+    },
+    "lucky_coin": {
+        "name": "Счастливая монета",
+        "emoji": "🪙",
+        "description": "Увеличивает шанс выигрыша в игре Coinflip на 5%",
+        "price": 200
     }
 }
 
@@ -66,15 +74,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_inventories[user_id] = {}
     
     await update.message.reply_text(
-        f"🎮 *Добро пожаловать в игровой бот минки, {user_name}!* 🎮\n\n"
+        f"🎮 *Добро пожаловать в игровой бот Mines, {user_name}!* 🎮\n\n"
         f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
         "📋 *Доступные команды:*\n"
         "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
-        "▫️ /mines [кол-во_мин] [ставка] - Играть в минки\n"
+        "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
+        "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
         "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
-        "▫️ /upgrade farm [сумма] [режим] - Улучшить ферму\n"
+        "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
         "▫️ /opencase [1-3] - Открыть кейс с призами\n"
         "▫️ /shop [buy/stock] [предмет] - Магазин предметов\n"
+        "▫️ /inventory - Посмотреть свой инвентарь\n"
         "▫️ /balance - Проверить баланс\n"
         "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
         "🎯 *Удачной игры!*",
@@ -181,7 +191,7 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🌱 Ваша ферма растёт!\n"
             f"🌾 Следующий ожидаемый урожай: *{next_value} ktn$*\n\n"
             f"⏰ Приходите через *{FARM_COOLDOWN_MINUTES} минут*\n"
-            f"💰 Текущий баланс: *{user_balances[user_id]} ktn$*",
+            f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*",
             parse_mode="Markdown"
         )
         
@@ -204,11 +214,12 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if len(context.args) != 2:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /upgrade farm [сумма] [режим]\n\n"
+            "ℹ️ *Использование:* /upgrade_farm [сумма] [режим]\n\n"
             "*Доступные режимы:*\n"
             "1 - Инвестировать в увеличение прибыли\n"
-            "2 - Инвестировать в защиту от неудач\n\n"
-            "Пример: `/upgrade farm 100 1`",
+            "2 - Инвестировать в защиту от неудач\n"
+            "3 - Инвестировать в снижение времени отката\n\n"
+            "Пример: `/upgrade_farm 100 1`",
             parse_mode="Markdown"
         )
         return
@@ -231,12 +242,13 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    if mode not in [1, 2]:
+    if mode not in [1, 2, 3]:
         await update.message.reply_text(
-            "❌ *Ошибка!* Режим должен быть 1 или 2.\n\n"
+            "❌ *Ошибка!* Режим должен быть 1, 2 или 3.\n\n"
             "*Доступные режимы:*\n"
             "1 - Инвестировать в увеличение прибыли\n"
-            "2 - Инвестировать в защиту от неудач",
+            "2 - Инвестировать в защиту от неудач\n"
+            "3 - Инвестировать в снижение времени отката",
             parse_mode="Markdown"
         )
         return
@@ -253,25 +265,26 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Deduct the investment
     user_balances[user_id] -= amount
     
-    # Apply upgrade based on mode
+    # Apply upgrade based on mode with balanced formulas
     if mode == 1:
-        # Upgrade farm productivity
-        percentage_increase = amount / 100
-        increase_factor = 0.5 + percentage_increase
+        # Upgrade farm productivity - with diminishing returns
+        # Logarithmic scaling to prevent overpowered farms
+        percentage_increase = min(50, 5 * (1 + 0.2 * (amount / 100)))
         
         old_value = farm_values[user_id]
-        farm_values[user_id] = round(old_value * (1 + increase_factor / 10), 1)
+        farm_values[user_id] = round(old_value * (1 + percentage_increase / 100), 1)
         
         await update.message.reply_text(
             f"🌱 *Ферма улучшена!*\n\n"
             f"💰 Инвестировано: *{amount} ktn$*\n"
-            f"📈 Доходность увеличена: *{old_value} ktn$ → {farm_values[user_id]} ktn$*\n\n"
+            f"📈 Доходность увеличена: *{old_value} ktn$ → {farm_values[user_id]} ktn$*\n"
+            f"📊 Процент увеличения: *+{percentage_increase}%*\n\n"
             f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
             parse_mode="Markdown"
         )
-    else:
-        # Upgrade farm immunity
-        percentage_decrease = min(2.5, amount / 40)  # Max 2.5% decrease per upgrade
+    elif mode == 2:
+        # Upgrade farm immunity - with diminishing returns
+        percentage_decrease = min(1, 0.1 * (1 + 0.05 * (amount / 100)))
         
         old_chance = farm_fail_chances[user_id]
         farm_fail_chances[user_id] = max(1, round(old_chance - percentage_decrease, 1))  # Minimum 1%
@@ -279,10 +292,64 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🛡️ *Защита фермы улучшена!*\n\n"
             f"💰 Инвестировано: *{amount} ktn$*\n"
-            f"📉 Шанс неудачи снижен: *{old_chance}% → {farm_fail_chances[user_id]}%*\n\n"
+            f"📉 Шанс неудачи снижен: *{old_chance}% → {farm_fail_chances[user_id]}%*\n"
+            f"📊 Процент снижения: *-{percentage_decrease}%*\n\n"
             f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
             parse_mode="Markdown"
         )
+    else:  # mode == 3
+        # New mode: reduce cooldown time (min 1 minute)
+        # This effect is temporary for the next harvest only
+        
+        # Store temporary cooldown reduction for next farm
+        if "temp_cooldown" not in farm_cooldowns:
+            farm_cooldowns["temp_cooldown"] = {}
+        
+        reduction_minutes = min(3, 0.2 * (1 + 0.1 * (amount / 100)))
+        farm_cooldowns["temp_cooldown"][user_id] = reduction_minutes
+        
+        await update.message.reply_text(
+            f"⏱️ *Время отката фермы уменьшено!*\n\n"
+            f"💰 Инвестировано: *{amount} ktn$*\n"
+            f"⏳ Время отката для следующего сбора: *{FARM_COOLDOWN_MINUTES - reduction_minutes} мин.*\n"
+            f"📊 Уменьшение времени: *-{reduction_minutes} мин.*\n\n"
+            f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
+            parse_mode="Markdown"
+        )
+
+async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    if user_id not in user_inventories:
+        user_inventories[user_id] = {}
+    
+    # Check if inventory is empty
+    if not user_inventories[user_id]:
+        await update.message.reply_text(
+            f"📦 *Инвентарь пользователя {user_name}*\n\n"
+            f"Ваш инвентарь пуст.\n\n"
+            f"Предметы можно приобрести в магазине: /shop stock",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Create inventory display
+    inventory_text = f"📦 *Инвентарь пользователя {user_name}*\n\n"
+    
+    for item_id, count in user_inventories[user_id].items():
+        if count > 0 and item_id in SHOP_ITEMS:
+            item = SHOP_ITEMS[item_id]
+            inventory_text += f"{item['emoji']} *{item['name']}* - {count} шт.\n"
+            inventory_text += f"└ {item['description']}\n\n"
+    
+    inventory_text += f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
+    inventory_text += "Предметы можно приобрести в магазине: `/shop stock`"
+    
+    await update.message.reply_text(
+        inventory_text,
+        parse_mode="Markdown"
+    )
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -310,7 +377,8 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         for item_id, item in SHOP_ITEMS.items():
             stock_text += f"{item['emoji']} *{item['name']}* - {item['price']} ktn$\n"
-            stock_text += f"└ {item['description']}\n\n"
+            stock_text += f"└ {item['description']}\n"
+            stock_text += f"└ ID: `{item_id}`\n\n"
         
         stock_text += f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*\n\n"
         stock_text += "Для покупки используйте: `/shop buy [предмет]`"
@@ -377,6 +445,153 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Доступные действия: `buy`, `stock`",
             parse_mode="Markdown"
         )
+
+async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    if user_id not in user_balances:
+        user_balances[user_id] = 0
+    
+    if user_id not in user_inventories:
+        user_inventories[user_id] = {}
+    
+    # Check arguments
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "ℹ️ *Использование:* /coinflip [ставка] [сторона]\n\n"
+            "*Доступные стороны:*\n"
+            "▫️ heads/h/орел/о - Орёл\n"
+            "▫️ tails/t/решка/р - Решка\n\n"
+            "Пример: `/coinflip 50 орел`",
+            parse_mode="Markdown"
+        )
+        return
+    
+    try:
+        bet = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ *Ошибка!* Ставка должна быть числом.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    side = context.args[1].lower()
+    
+    # Map different inputs to heads/tails
+    heads_options = ["heads", "h", "орел", "орёл", "о"]
+    tails_options = ["tails", "t", "решка", "р"]
+    
+    if side in heads_options:
+        player_choice = "heads"
+        player_choice_ru = "Орёл"
+    elif side in tails_options:
+        player_choice = "tails"
+        player_choice_ru = "Решка"
+    else:
+        await update.message.reply_text(
+            "❌ *Ошибка!* Неверная сторона монеты.\n\n"
+            "*Доступные стороны:*\n"
+            "▫️ heads/h/орел/о - Орёл\n"
+            "▫️ tails/t/решка/р - Решка",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Validate bet
+    if bet < MIN_BET:
+        await update.message.reply_text(
+            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$*.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    if bet > user_balances[user_id]:
+        await update.message.reply_text(
+            f"❌ *Недостаточно средств!*\n\n"
+            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
+            f"Требуется: *{bet} ktn$*",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Deduct bet from balance
+    user_balances[user_id] -= bet
+    
+    # Send initial message
+    initial_message = await update.message.reply_text(
+        f"🪙 *Бросаем монетку...*\n\n"
+        f"👤 Игрок: *{user_name}*\n"
+        f"💰 Ставка: *{bet} ktn$*\n"
+        f"🎯 Выбор: *{player_choice_ru}*\n\n"
+        f"⏳ *Подбрасываем монету...*",
+        parse_mode="Markdown"
+    )
+    
+    # Animation
+    for i in range(3):
+        await asyncio.sleep(0.5)
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=initial_message.message_id,
+            text=f"🪙 *Бросаем монетку...*\n\n"
+                 f"👤 Игрок: *{user_name}*\n"
+                 f"💰 Ставка: *{bet} ktn$*\n"
+                 f"🎯 Выбор: *{player_choice_ru}*\n\n"
+                 f"⏳ *{'Орёл' if i % 2 == 0 else 'Решка'}...*",
+            parse_mode="Markdown"
+        )
+    
+    # Check if user has lucky coin and apply bonus
+    has_lucky_coin = user_inventories.get(user_id, {}).get("lucky_coin", 0) > 0
+    bonus_chance = 5 if has_lucky_coin else 0
+    
+    # Determine result (slightly biased if user has lucky coin)
+    if has_lucky_coin and player_choice == "heads":
+        win_chance = 50 + bonus_chance
+    elif has_lucky_coin and player_choice == "tails":
+        win_chance = 50 + bonus_chance
+    else:
+        win_chance = 50
+    
+    user_won = random.randint(1, 100) <= win_chance
+    
+    # Determine coin result based on if user won
+    if user_won:
+        coin_result = player_choice
+        coin_result_ru = player_choice_ru
+    else:
+        coin_result = "tails" if player_choice == "heads" else "heads"
+        coin_result_ru = "Решка" if player_choice == "heads" else "Орёл"
+    
+    # Calculate winnings
+    if user_won:
+        winnings = bet * 2
+        user_balances[user_id] += winnings
+        result_text = f"🎉 *Вы выиграли!*\n💰 Выигрыш: *{winnings} ktn$*"
+    else:
+        winnings = 0
+        result_text = "❌ *Вы проиграли!*\n💰 Ставка потеряна."
+    
+    # Bonus info if lucky coin was used
+    bonus_text = ""
+    if has_lucky_coin:
+        bonus_text = f"\n🪙 *Счастливая монета* дала вам +{bonus_chance}% к шансу выигрыша!"
+    
+    # Final message
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=initial_message.message_id,
+        text=f"🪙 *Результат броска монеты:*\n\n"
+             f"👤 Игрок: *{user_name}*\n"
+             f"💰 Ставка: *{bet} ktn$*\n"
+             f"🎯 Ваш выбор: *{player_choice_ru}*\n"
+             f"🎲 Выпало: *{coin_result_ru}*\n\n"
+             f"{result_text}{bonus_text}\n\n"
+             f"💹 Ваш баланс: *{user_balances[user_id]} ktn$*",
+        parse_mode="Markdown"
+    )
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -752,13 +967,13 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                 )
             else:
                 status = (
-                    f"💥 *Ой! {game['user_name']} подорвался на мине!* 💥\n\n"
+                    f"💥 *БУМ! {game['user_name']} подорвался на мине!* 💥\n\n"
                     f"❌ Ставка *{game['bet']} ktn$* потеряна.\n"
                     f"🎮 Удачи в следующий раз!"
                 )
         else:
             status = (
-                f"🎮 *Минки* | Игрок: *{game['user_name']}*\n\n"
+                f"🎮 *MINES* | Игрок: *{game['user_name']}*\n\n"
                 f"💣 Мин на поле: *{game['num_mines']}*\n"
                 f"💰 Ставка: *{game['bet']} ktn$*\n"
                 f"✅ Открыто безопасных клеток: *{revealed_count}*\n"
@@ -938,7 +1153,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     game["mine_positions"] = random.sample(remaining_positions, min(game["num_mines"], len(remaining_positions)))
                     
                     # Update the game board
-                    await query.answer("🛡️ Защитная аура сработала! Будь акуратным бро!", show_alert=True)
+                    await query.answer("🛡️ Защитная аура сработала! Вы спаслись от мины!", show_alert=True)
                     await send_game_board(update, context, game_owner_id)
                     return
                 
@@ -1033,7 +1248,7 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         )
     else:
         status = (
-            f"💥 *Ой! {game['user_name']} подорвался на мине!* 💥\n\n"
+            f"💥 *БУМ! {game['user_name']} подорвался на мине!* 💥\n\n"
             f"❌ Ставка *{game['bet']} ktn$* потеряна.\n"
             f"🎮 Удачи в следующий раз!\n\n"
             f"⏱️ *Сообщение будет удалено через 5 секунд*"
@@ -1059,10 +1274,12 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("free", free))
     app.add_handler(CommandHandler("farm", farm))
-    app.add_handler(CommandHandler("upgrade", upgrade_farm))
+    app.add_handler(CommandHandler("upgrade_farm", upgrade_farm))
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("opencase", opencase))
     app.add_handler(CommandHandler("shop", shop))
+    app.add_handler(CommandHandler("inventory", inventory))
+    app.add_handler(CommandHandler("coinflip", coinflip))
     app.add_handler(CommandHandler("mines", mines))
     app.add_handler(CommandHandler("reset", reset_game))
     app.add_handler(CommandHandler("cleanup", manual_cleanup))  # Admin command for manual cleanup
