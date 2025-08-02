@@ -22,6 +22,7 @@ farm_cooldowns = {}  # Track farm cooldowns
 case_cooldowns = {}  # Track case opening cooldowns
 user_inventories = {}  # Track user inventories
 farm_fail_chances = {}  # Track farm fail chances for users
+blackjack_games = {}  # Track active blackjack games
 
 # Game configuration
 MIN_BET = 5
@@ -64,6 +65,13 @@ SHOP_ITEMS = {
     }
 }
 
+# Card suits and values for Blackjack
+SUITS = ["♠️", "♥️", "♦️", "♣️"]
+CARD_VALUES = {
+    "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10,
+    "J": 10, "Q": 10, "K": 10, "A": 11
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -80,6 +88,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "▫️ /free - Получить 10 ktn$ бесплатно (раз в 25 минут)\n"
         "▫️ /mines [кол-во_мин] [ставка] - Играть в Mines\n"
         "▫️ /coinflip [ставка] [сторона] - Игра в монетку (орел/решка)\n"
+        "▫️ /blackjack [ставка] - Игра в Блэкджек\n"
         "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
         "▫️ /upgrade_farm [сумма] [режим] - Улучшить ферму\n"
         "▫️ /opencase [1-3] - Открыть кейс с призами\n"
@@ -144,7 +153,15 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in farm_cooldowns:
         last_farm_time = farm_cooldowns[user_id]
         time_since_last = current_time - last_farm_time
-        cooldown_time = timedelta(minutes=FARM_COOLDOWN_MINUTES)
+        
+        # Check for temporary cooldown reduction
+        cooldown_minutes = FARM_COOLDOWN_MINUTES
+        if "temp_cooldown" in farm_cooldowns and user_id in farm_cooldowns["temp_cooldown"]:
+            cooldown_minutes -= farm_cooldowns["temp_cooldown"][user_id]
+            # Use this reduction once
+            del farm_cooldowns["temp_cooldown"][user_id]
+        
+        cooldown_time = timedelta(minutes=cooldown_minutes)
         
         if time_since_last < cooldown_time:
             remaining = cooldown_time - time_since_last
@@ -173,7 +190,7 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🌱 Но не расстраивайтесь, следующий урожай будет ещё больше!\n"
             f"🌾 Следующий ожидаемый урожай: *{next_value} ktn$*\n\n"
             f"⏰ Приходите через *{FARM_COOLDOWN_MINUTES} минут*\n"
-            f"💰 Текущий баланс: *{user_balances[user_id]} ktn$*",
+            f"💰 Ваш баланс: *{user_balances[user_id]} ktn$*",
             parse_mode="Markdown"
         )
         
@@ -214,11 +231,16 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check arguments
     if len(context.args) != 2:
         await update.message.reply_text(
-            "ℹ️ *Использование:* /upgrade_farm [сумма] [режим]\n\n"
+            "ℹ️ *Улучшение фермы*\n\n"
+            "*Использование:* /upgrade_farm [сумма] [режим]\n\n"
             "*Доступные режимы:*\n"
             "1 - Инвестировать в увеличение прибыли\n"
             "2 - Инвестировать в защиту от неудач\n"
             "3 - Инвестировать в снижение времени отката\n\n"
+            "*Текущие параметры фермы:*\n"
+            f"🌾 Доходность: *{farm_values[user_id]} ktn$*\n"
+            f"🛡️ Шанс неудачи: *{farm_fail_chances[user_id]}%*\n"
+            f"⏱️ Время отката: *{FARM_COOLDOWN_MINUTES} мин.*\n\n"
             "Пример: `/upgrade_farm 100 1`",
             parse_mode="Markdown"
         )
@@ -229,7 +251,9 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode = int(context.args[1])
     except ValueError:
         await update.message.reply_text(
-            "❌ *Ошибка!* Сумма и режим должны быть числами.",
+            "❌ *Ошибка!* Сумма и режим должны быть числами.\n\n"
+            "Используйте: `/upgrade_farm [сумма] [режим]`\n"
+            "Пример: `/upgrade_farm 100 1`",
             parse_mode="Markdown"
         )
         return
@@ -756,11 +780,21 @@ async def reset_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Теперь вы можете начать новую игру.",
             parse_mode="Markdown"
         )
-    else:
+        return
+    
+    if user_id in blackjack_games:
+        del blackjack_games[user_id]
         await update.message.reply_text(
-            "ℹ️ У вас нет активных игр, которые нужно сбросить.",
+            "🔄 *Ваша игра в Блэкджек успешно сброшена!*\n"
+            "Теперь вы можете начать новую игру.",
             parse_mode="Markdown"
         )
+        return
+    
+    await update.message.reply_text(
+        "ℹ️ У вас нет активных игр, которые нужно сбросить.",
+        parse_mode="Markdown"
+    )
 
 async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is admin (you can modify this check as needed)
@@ -770,10 +804,12 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Count before cleanup
     count_before = len(active_games)
+    count_blackjack_before = len(blackjack_games)
     
     # Find stale games (older than 1 hour)
     current_time = datetime.now()
     stale_game_users = []
+    stale_blackjack_users = []
     
     for user_id, game in active_games.items():
         if 'start_time' not in game:
@@ -783,6 +819,15 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time_diff = current_time - game['start_time']
         if time_diff > timedelta(hours=1):
             stale_game_users.append(user_id)
+    
+    for user_id, game in blackjack_games.items():
+        if 'start_time' not in game:
+            game['start_time'] = current_time
+            continue
+            
+        time_diff = current_time - game['start_time']
+        if time_diff > timedelta(hours=1):
+            stale_blackjack_users.append(user_id)
     
     # Remove stale games
     for user_id in stale_game_users:
@@ -800,13 +845,24 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             del active_games[user_id]
     
+    for user_id in stale_blackjack_users:
+        if user_id in blackjack_games:
+            del blackjack_games[user_id]
+    
     # Report results
     count_after = len(active_games)
+    count_blackjack_after = len(blackjack_games)
+    
     await update.message.reply_text(
         f"🧹 *Очистка завершена*\n\n"
-        f"Было игр: *{count_before}*\n"
-        f"Удалено: *{count_before - count_after}*\n"
-        f"Осталось: *{count_after}*",
+        f"Игры Mines:\n"
+        f"- Было: *{count_before}*\n"
+        f"- Удалено: *{count_before - count_after}*\n"
+        f"- Осталось: *{count_after}*\n\n"
+        f"Игры Blackjack:\n"
+        f"- Было: *{count_blackjack_before}*\n"
+        f"- Удалено: *{count_blackjack_before - count_blackjack_after}*\n"
+        f"- Осталось: *{count_blackjack_after}*",
         parse_mode="Markdown"
     )
 
@@ -824,6 +880,14 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in active_games:
         await update.message.reply_text(
             "⚠️ *У вас уже есть активная игра!*\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    if user_id in blackjack_games:
+        await update.message.reply_text(
+            "⚠️ *У вас уже есть активная игра в Блэкджек!*\n"
             "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
             parse_mode="Markdown"
         )
@@ -1062,7 +1126,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         callback_parts = query.data.split('_')
         caller_id = update.effective_user.id
         
-        # Extract user_id from callback data
+        # Handle blackjack callbacks
+        if callback_parts[0] == "bj":
+            await handle_blackjack_button(update, context, query, callback_parts)
+            return
+        
+        # Extract user_id from callback data for mines game
         game_owner_id = int(callback_parts[-1])
         
         # Security check: Only game owner can press buttons
@@ -1266,6 +1335,401 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     except Exception as e:
         print(f"Error in show_all_mines: {e}")
 
+# Blackjack game functions
+def create_deck():
+    """Create and shuffle a new deck of cards"""
+    deck = []
+    for suit in SUITS:
+        for value in CARD_VALUES:
+            deck.append({"value": value, "suit": suit})
+    random.shuffle(deck)
+    return deck
+
+def deal_card(deck):
+    """Deal a card from the deck"""
+    return deck.pop()
+
+def calculate_hand_value(hand):
+    """Calculate the value of a hand, accounting for aces"""
+    value = 0
+    aces = 0
+    
+    for card in hand:
+        card_value = card["value"]
+        if card_value == "A":
+            aces += 1
+            value += 11
+        else:
+            value += CARD_VALUES[card_value]
+    
+    # Adjust for aces if needed
+    while value > 21 and aces > 0:
+        value -= 10
+        aces -= 1
+    
+    return value
+
+def format_card(card):
+    """Format a card for display"""
+    return f"{card['value']}{card['suit']}"
+
+def format_hand(hand):
+    """Format a hand for display"""
+    return " ".join([format_card(card) for card in hand])
+
+def is_blackjack(hand):
+    """Check if hand is a natural blackjack (21 with 2 cards)"""
+    return len(hand) == 2 and calculate_hand_value(hand) == 21
+
+async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    if user_id not in user_balances:
+        user_balances[user_id] = 0
+    
+    # Check if user already has an active game
+    if user_id in active_games:
+        await update.message.reply_text(
+            "⚠️ *У вас уже есть активная игра в Mines!*\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    if user_id in blackjack_games:
+        await update.message.reply_text(
+            "⚠️ *У вас уже есть активная игра в Блэкджек!*\n"
+            "Завершите её, прежде чем начать новую, или используйте /reset чтобы сбросить.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Check arguments
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "ℹ️ *Использование:* /blackjack [ставка]\n\n"
+            "Пример: `/blackjack 50`\n\n"
+            "*Правила игры:*\n"
+            "• Цель: набрать 21 очко или приблизиться к этому числу, не превысив его\n"
+            "• Карты от 2 до 10 имеют номинальную ценность\n"
+            "• Валеты, Дамы и Короли стоят по 10 очков\n"
+            "• Тузы могут стоить 1 или 11 очков\n"
+            "• Если у вас сразу 21 (Туз + 10/картинка) - у вас Блэкджек, вы выигрываете с коэффициентом 2.5\n"
+            "• Дилер должен брать карты, пока не наберёт 17 или больше",
+            parse_mode="Markdown"
+        )
+        return
+    
+    try:
+        bet = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ *Ошибка!* Ставка должна быть числом.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Validate bet
+    if bet < MIN_BET:
+        await update.message.reply_text(
+            f"❌ *Ошибка!* Минимальная ставка: *{MIN_BET} ktn$*.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    if bet > user_balances[user_id]:
+        await update.message.reply_text(
+            f"❌ *Недостаточно средств!*\n\n"
+            f"Ваш баланс: *{user_balances[user_id]} ktn$*\n"
+            f"Требуется: *{bet} ktn$*",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Deduct bet from balance
+    user_balances[user_id] -= bet
+    
+    # Create new deck and deal initial cards
+    deck = create_deck()
+    player_hand = [deal_card(deck), deal_card(deck)]
+    dealer_hand = [deal_card(deck), deal_card(deck)]
+    
+    # Create game state
+    game_state = {
+        "bet": bet,
+        "deck": deck,
+        "player_hand": player_hand,
+        "dealer_hand": dealer_hand,
+        "player_value": calculate_hand_value(player_hand),
+        "dealer_value": calculate_hand_value(dealer_hand),
+        "game_over": False,
+        "result": None,
+        "user_id": user_id,
+        "user_name": user_name,
+        "chat_id": update.effective_chat.id,
+        "start_time": datetime.now()
+    }
+    
+    blackjack_games[user_id] = game_state
+    
+    # Check for immediate blackjack
+    player_blackjack = is_blackjack(player_hand)
+    dealer_blackjack = is_blackjack(dealer_hand)
+    
+    if player_blackjack or dealer_blackjack:
+        game_state["game_over"] = True
+        
+        if player_blackjack and dealer_blackjack:
+            # Both have blackjack - push
+            game_state["result"] = "push"
+            user_balances[user_id] += bet  # Return bet
+        elif player_blackjack:
+            # Player has blackjack - win 3:2
+            game_state["result"] = "blackjack"
+            winnings = int(bet * 2.5)
+            user_balances[user_id] += winnings
+        else:  # dealer_blackjack
+            # Dealer has blackjack - player loses
+            game_state["result"] = "dealer_blackjack"
+    
+    # Create and send the game board
+    await send_blackjack_board(update, context, user_id)
+
+async def send_blackjack_board(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    try:
+        if user_id not in blackjack_games:
+            return
+            
+        game = blackjack_games[user_id]
+        
+        # Determine what to show for dealer's hand
+        if game["game_over"]:
+            # Show all cards if game is over
+            dealer_hand_display = format_hand(game["dealer_hand"])
+            dealer_value_display = game["dealer_value"]
+        else:
+            # Show only first card if game is still in progress
+            dealer_hand_display = f"{format_card(game['dealer_hand'][0])} 🂠"
+            dealer_value_display = "?"
+        
+        # Create keyboard with game buttons
+        keyboard = []
+        
+        if not game["game_over"]:
+            # Add hit and stand buttons if game is still in progress
+            keyboard.append([
+                InlineKeyboardButton("🎯 Взять карту", callback_data=f"bj_hit_{user_id}"),
+                InlineKeyboardButton("✋ Остановиться", callback_data=f"bj_stand_{user_id}")
+            ])
+        else:
+            # Add play again button if game is over
+            keyboard.append([
+                InlineKeyboardButton("🔄 Играть снова", callback_data=f"bj_again_{user_id}")
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Create status message
+        status = f"🎮 *BLACKJACK* | Игрок: *{game['user_name']}*\n\n"
+        
+        # Player's hand
+        status += f"👤 *Ваши карты:* {format_hand(game['player_hand'])}\n"
+        status += f"📊 Сумма: *{game['player_value']}*\n\n"
+        
+        # Dealer's hand
+        status += f"🎰 *Карты дилера:* {dealer_hand_display}\n"
+        status += f"📊 Сумма: *{dealer_value_display}*\n\n"
+        
+        # Bet information
+        status += f"💰 Ставка: *{game['bet']} ktn$*\n"
+        
+        # Result information if game is over
+        if game["game_over"]:
+            if game["result"] == "blackjack":
+                winnings = int(game["bet"] * 2.5)
+                status += f"🎉 *БЛЭКДЖЕК!* Вы выиграли *{winnings} ktn$*\n"
+            elif game["result"] == "win":
+                winnings = game["bet"] * 2
+                status += f"🎉 *Вы выиграли!* Получено *{winnings} ktn$*\n"
+            elif game["result"] == "push":
+                status += f"🤝 *Ничья!* Ставка возвращена.\n"
+            elif game["result"] == "bust":
+                status += f"💥 *Перебор!* Вы проиграли *{game['bet']} ktn$*\n"
+            elif game["result"] == "dealer_blackjack":
+                status += f"💀 *У дилера блэкджек!* Вы проиграли *{game['bet']} ktn$*\n"
+            elif game["result"] == "dealer_bust":
+                winnings = game["bet"] * 2
+                status += f"🎉 *У дилера перебор!* Вы выиграли *{winnings} ktn$*\n"
+            elif game["result"] == "dealer_win":
+                status += f"💀 *Дилер выиграл!* Вы проиграли *{game['bet']} ktn$*\n"
+            
+            status += f"\n💰 Ваш баланс: *{user_balances[user_id]} ktn$*"
+        
+        # Update or send new message
+        if "message_id" in game and "chat_id" in game:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=game["chat_id"],
+                    message_id=game["message_id"],
+                    text=status,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                # If there's an error updating, send a new message
+                message = await context.bot.send_message(
+                    chat_id=game["chat_id"],
+                    text=status,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+                game["message_id"] = message.message_id
+        else:
+            # First time sending the board
+            message = await update.message.reply_text(
+                text=status,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+            game["message_id"] = message.message_id
+            game["chat_id"] = update.effective_chat.id
+    
+    except Exception as e:
+        print(f"Error in send_blackjack_board: {e}")
+
+async def handle_blackjack_button(update: Update, context, query, callback_parts):
+    try:
+        action = callback_parts[1]
+        user_id = int(callback_parts[2])
+        caller_id = update.effective_user.id
+        
+        # Security check: Only game owner can press buttons
+        if caller_id != user_id:
+            await query.answer("Это не ваша игра! Вы не можете нажимать на кнопки в чужой игре.", show_alert=False)
+            return
+        
+        # Check if game exists
+        if user_id not in blackjack_games:
+            await query.answer("Игра не найдена! Возможно, она была сброшена.", show_alert=True)
+            return
+        
+        game = blackjack_games[user_id]
+        
+        # Check if game is over (except for "again" action)
+        if game["game_over"] and action != "again":
+            await query.answer("Эта игра уже завершена!", show_alert=True)
+            return
+        
+        # Answer the callback query to stop loading indicator
+        await query.answer()
+        
+        # Handle hit action
+        if action == "hit":
+            # Deal a new card to player
+            new_card = deal_card(game["deck"])
+            game["player_hand"].append(new_card)
+            game["player_value"] = calculate_hand_value(game["player_hand"])
+            
+            # Check if player busts
+            if game["player_value"] > 21:
+                game["game_over"] = True
+                game["result"] = "bust"
+            
+            # Update game board
+            await send_blackjack_board(update, context, user_id)
+        
+        # Handle stand action
+        elif action == "stand":
+            # Dealer plays
+            while game["dealer_value"] < 17:
+                new_card = deal_card(game["deck"])
+                game["dealer_hand"].append(new_card)
+                game["dealer_value"] = calculate_hand_value(game["dealer_hand"])
+            
+            # Determine result
+            game["game_over"] = True
+            
+            if game["dealer_value"] > 21:
+                game["result"] = "dealer_bust"
+                winnings = game["bet"] * 2
+                user_balances[user_id] += winnings
+            elif game["dealer_value"] > game["player_value"]:
+                game["result"] = "dealer_win"
+            elif game["dealer_value"] < game["player_value"]:
+                game["result"] = "win"
+                winnings = game["bet"] * 2
+                user_balances[user_id] += winnings
+            else:
+                game["result"] = "push"
+                user_balances[user_id] += game["bet"]  # Return bet
+            
+            # Update game board
+            await send_blackjack_board(update, context, user_id)
+        
+        # Handle play again action
+        elif action == "again":
+            # Start a new game with the same bet
+            bet = game["bet"]
+            
+            # Check if user has enough balance
+            if bet > user_balances[user_id]:
+                await query.answer(f"Недостаточно средств! Нужно {bet} ktn$", show_alert=True)
+                return
+            
+            # Deduct bet from balance
+            user_balances[user_id] -= bet
+            
+            # Create new deck and deal initial cards
+            deck = create_deck()
+            player_hand = [deal_card(deck), deal_card(deck)]
+            dealer_hand = [deal_card(deck), deal_card(deck)]
+            
+            # Create new game state
+            new_game = {
+                "bet": bet,
+                "deck": deck,
+                "player_hand": player_hand,
+                "dealer_hand": dealer_hand,
+                "player_value": calculate_hand_value(player_hand),
+                "dealer_value": calculate_hand_value(dealer_hand),
+                "game_over": False,
+                "result": None,
+                "user_id": user_id,
+                "user_name": game["user_name"],
+                "chat_id": game["chat_id"],
+                "message_id": game["message_id"],
+                "start_time": datetime.now()
+            }
+            
+            blackjack_games[user_id] = new_game
+            
+            # Check for immediate blackjack
+            player_blackjack = is_blackjack(player_hand)
+            dealer_blackjack = is_blackjack(dealer_hand)
+            
+            if player_blackjack or dealer_blackjack:
+                new_game["game_over"] = True
+                
+                if player_blackjack and dealer_blackjack:
+                    # Both have blackjack - push
+                    new_game["result"] = "push"
+                    user_balances[user_id] += bet  # Return bet
+                elif player_blackjack:
+                    # Player has blackjack - win 3:2
+                    new_game["result"] = "blackjack"
+                    winnings = int(bet * 2.5)
+                    user_balances[user_id] += winnings
+                else:  # dealer_blackjack
+                    # Dealer has blackjack - player loses
+                    new_game["result"] = "dealer_blackjack"
+            
+            # Update game board
+            await send_blackjack_board(update, context, user_id)
+    
+    except Exception as e:
+        print(f"Error in handle_blackjack_button: {e}")
+
 def main():
     # Create the Application
     app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
@@ -1280,6 +1744,7 @@ def main():
     app.add_handler(CommandHandler("shop", shop))
     app.add_handler(CommandHandler("inventory", inventory))
     app.add_handler(CommandHandler("coinflip", coinflip))
+    app.add_handler(CommandHandler("blackjack", blackjack))
     app.add_handler(CommandHandler("mines", mines))
     app.add_handler(CommandHandler("reset", reset_game))
     app.add_handler(CommandHandler("cleanup", manual_cleanup))  # Admin command for manual cleanup
