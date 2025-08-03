@@ -225,10 +225,11 @@ async def save_user_data():
         }
         
         # Сохраняем в Firebase
-        db.collection("bot_data").document("user_data").set(data_to_save)
-        print("Данные пользователей успешно сохранены в Firebase")
+        ref = db.reference("/user_data")
+        ref.set(data_to_save)
+        print("✅ Данные пользователей успешно сохранены в Firebase")
     except Exception as e:
-        print(f"Ошибка при сохранении данных в Firebase: {e}")
+        print(f"❌ Ошибка при сохранении данных в Firebase: {e}")
 
 async def load_user_data():
     if not firebase_enabled:
@@ -236,12 +237,10 @@ async def load_user_data():
         
     try:
         # Загружаем данные из Firebase
-        doc_ref = db.collection("bot_data").document("user_data")
-        doc = doc_ref.get()
+        ref = db.reference("/user_data")
+        data = ref.get()
         
-        if doc.exists:
-            data = doc.to_dict()
-            
+        if data:
             # Обновляем глобальные переменные
             global user_balances, farm_values, max_farm_values
             global farm_fail_chances, user_inventories, item_experience, item_levels
@@ -263,11 +262,11 @@ async def load_user_data():
             item_experience = {int(k): v for k, v in item_experience.items()}
             item_levels = {int(k): v for k, v in item_levels.items()}
             
-            print("Данные пользователей успешно загружены из Firebase")
+            print("✅ Данные пользователей успешно загружены из Firebase")
         else:
-            print("Данные пользователей не найдены в Firebase")
+            print("ℹ️ Данные пользователей не найдены в Firebase")
     except Exception as e:
-        print(f"Ошибка при загрузке данных из Firebase: {e}")
+        print(f"❌ Ошибка при загрузке данных из Firebase: {e}")
 
 # Новая команда для администратора - установка баланса
 async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1433,6 +1432,9 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Deduct bet from balance
     user_balances[user_id] -= bet
+    
+    # Сохраняем в Firebase
+    await save_user_data()
     
     # Generate mine positions
     all_positions = list(range(TOTAL_TILES))
