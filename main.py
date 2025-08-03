@@ -51,6 +51,15 @@ item_levels = {}  # Track item levels
 farm_fail_chances = {}  # Track farm fail chances for users
 blackjack_games = {}  # Track active blackjack games
 crash_games = {}  # Track active crash games
+user_game_stats = {}  # Track user win/loss statistics for rigging
+user_display_names = {}  # Store user display names for top balance
+
+# Система ивентов
+active_events = {
+    "exp_booster": False  # По умолчанию ивент не активен
+}
+event_start_time = None
+event_end_time = None
 
 # Game configuration
 MIN_BET = 5
@@ -64,8 +73,10 @@ FARM_STARTING_VALUE = 5
 MAX_FARM_VALUE = 500  # Maximum value farm can produce
 FARM_FAIL_CHANCE = 10  # Percentage chance of failing
 CASE_COOLDOWN_SECONDS = 5  # Anti-spam cooldown for case opening
-POISONOUS_MINE_CHANCE = 40  # Percentage chance of mine being poisonous
+POISONOUS_MINE_CHANCE = 12.5  # Percentage chance of mine being poisonous (изменено с 40 на 12.5)
 ADMIN_ID = 1820934194  # ID администратора
+EVENT_INTERVAL_MINUTES = 20  # Интервал между ивентами
+EVENT_DURATION_MINUTES = 5  # Продолжительность ивента
 
 # Experience configuration
 EXP_PER_WIN = {
@@ -242,7 +253,9 @@ async def save_user_data():
             "farm_fail_chances": farm_fail_chances,
             "user_inventories": user_inventories,
             "item_experience": item_experience,
-            "item_levels": item_levels
+            "item_levels": item_levels,
+            "user_game_stats": user_game_stats,
+            "user_display_names": user_display_names
         }
         
         # Сохраняем в Firebase
@@ -265,6 +278,7 @@ async def load_user_data():
             # Обновляем глобальные переменные
             global user_balances, farm_values, max_farm_values
             global farm_fail_chances, user_inventories, item_experience, item_levels
+            global user_game_stats, user_display_names
             
             user_balances = data.get("user_balances", {})
             farm_values = data.get("farm_values", {})
@@ -273,6 +287,8 @@ async def load_user_data():
             user_inventories = data.get("user_inventories", {})
             item_experience = data.get("item_experience", {})
             item_levels = data.get("item_levels", {})
+            user_game_stats = data.get("user_game_stats", {})
+            user_display_names = data.get("user_display_names", {})
             
             # Конвертируем строковые ключи в числовые для user_id
             user_balances = {int(k): v for k, v in user_balances.items()}
@@ -282,12 +298,103 @@ async def load_user_data():
             user_inventories = {int(k): v for k, v in user_inventories.items()}
             item_experience = {int(k): v for k, v in item_experience.items()}
             item_levels = {int(k): v for k, v in item_levels.items()}
+            user_game_stats = {int(k): v for k, v in user_game_stats.items()}
+            user_display_names = {int(k): v for k, v in user_display_names.items()}
             
             print("✅ Данные пользователей успешно загружены из Firebase")
         else:
             print("ℹ️ Данные пользователей не найдены в Firebase")
     except Exception as e:
         print(f"❌ Ошибка при загрузке данных из Firebase: {e}")
+
+# Функции для системы ивентов
+async def check_and_start_events(context: ContextTypes.DEFAULT_TYPE):
+    """Проверяет и запускает ивенты по расписанию"""
+    global event_start_time, event_end_time, active_events
+    
+    current_time = datetime.now()
+    
+    # Если ивент уже активен, проверяем, не закончился ли он
+    if event_start_time and event_end_time:
+        if current_time > event_end_time:
+            # Ивент закончился, деактивируем его
+            active_events["exp_booster"] = False
+            event_start_time = None
+            event_end_time = None
+            
+            # Уведомляем о завершении ивента через бота
+            try:
+                for chat_id in set(game["chat_id"] for game in active_games.values()):
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="⏰ Событие 'Бустер опыта x2' закончилось! Ждем новых ивентов!"
+                    )
+            except Exception as e:
+                print(f"Ошибка при отправке уведомления о завершении ивента: {e}")
+    
+    # Если ивент не активен, проверяем, не пора ли запустить новый
+    if not event_start_time:
+        # Запускаем новый ивент каждые EVENT_INTERVAL_MINUTES минут
+        # Используем текущее время для определения, пора ли запускать
+        minutes_since_hour = current_time.minute + current_time.hour * 60
+        if minutes_since_hour % EVENT_INTERVAL_MINUTES == 0:
+            # Активируем ивент "Бустер опыта"
+            active_events["exp_booster"] = True
+            event_start_time = current_time
+            event_end_time = current_time + timedelta(minutes=EVENT_DURATION_MINUTES)
+            
+            # Уведомляем о запуске ивента через бота
+            try:
+                for chat_id in set(game["chat_id"] for game in active_games.values()):
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"🎉 Началось событие 'Бустер опыта x2'!\n\n"
+                             f"Весь опыт за игры удваивается на {EVENT_DURATION_MINUTES} минут!\n"
+                             f"Участвуйте в играх, чтобы быстрее прокачать свои предметы!"
+                    )
+            except Exception as e:
+                print(f"Ошибка при отправке уведомления о запуске ивента: {e}")
+
+# Функция для анализа статистики игрока и риггинга игры в мины
+def should_rig_mines(user_id):
+    """Определяет, нужно ли ригать игру для пользователя на основе его статистики"""
+    if user_id not in user_game_stats:
+        return False
+    
+    stats = user_game_stats[user_id]
+    wins = stats.get("mines_wins", 0)
+    losses = stats.get("mines_losses", 0)
+    
+    # Если у игрока менее 5 игр, не риггаем
+    if wins + losses < 5:
+        return False
+    
+    # Если соотношение побед к общему числу игр больше 0.7 (70% побед), 
+    # то с вероятностью 30% риггаем игру
+    win_ratio = wins / (wins + losses) if wins + losses > 0 else 0
+    if win_ratio > 0.7:
+        return random.random() < 0.3
+    
+    return False
+
+def rig_mines_game(game_state):
+    """Модифицирует расположение мин для увеличения вероятности проигрыша"""
+    # Берем первые 3 хода, которые игрок с наибольшей вероятностью сделает
+    # Эти позиции часто выбираются в начале игры (центр и углы)
+    common_first_moves = [12, 0, 4, 20, 24]  # Центр и углы 5x5 сетки
+    
+    # Случайно выбираем несколько из этих позиций и делаем их минами
+    num_mines_to_place = min(2, game_state["num_mines"])
+    mines_to_place = random.sample(common_first_moves, num_mines_to_place)
+    
+    # Добавляем остальные мины случайно
+    remaining_positions = [p for p in range(TOTAL_TILES) if p not in mines_to_place]
+    additional_mines = random.sample(remaining_positions, game_state["num_mines"] - num_mines_to_place)
+    
+    # Объединяем мины
+    game_state["mine_positions"] = mines_to_place + additional_mines
+    
+    return game_state
 
 # Новая команда для администратора - установка баланса
 async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -343,6 +450,29 @@ async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Баланс пользователя @{target_username} установлен на {new_balance} ktn$"
     )
 
+# Новая команда - топ по балансу
+async def top_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Проверяем, есть ли данные о балансах
+    if not user_balances:
+        await update.message.reply_text(
+            "📊 Пока нет данных о балансах пользователей."
+        )
+        return
+    
+    # Сортируем пользователей по балансу
+    sorted_users = sorted(user_balances.items(), key=lambda x: x[1], reverse=True)
+    
+    # Формируем сообщение с топ-10 (или меньше, если пользователей меньше)
+    top_count = min(10, len(sorted_users))
+    message = f"🏆 Топ-{top_count} пользователей по балансу:\n\n"
+    
+    for i, (user_id, balance) in enumerate(sorted_users[:top_count], 1):
+        # Получаем имя пользователя
+        user_name = user_display_names.get(user_id, f"Пользователь {user_id}")
+        message += f"{i}. {user_name} - {balance} ktn$\n"
+    
+    await update.message.reply_text(message)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -352,6 +482,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id not in user_inventories:
         user_inventories[user_id] = {}
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
+    
+    # Сохраняем в Firebase
+    await save_user_data()
     
     try:
         text = f"🎮 Добро пожаловать в игровой бот Mines, {user_name}! 🎮\n\n"
@@ -369,6 +505,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
         text += "▫️ /inventory - Посмотреть свой инвентарь\n"
         text += "▫️ /balance - Проверить баланс\n"
+        text += "▫️ /top_bal - Топ игроков по балансу\n"
         text += "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
         text += "🎯 Удачной игры!"
         
@@ -378,10 +515,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
     current_time = datetime.now()
     
     if user_id not in user_balances:
         user_balances[user_id] = 0
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check cooldown
     if user_id in free_cooldowns:
@@ -415,6 +556,7 @@ async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
     current_time = datetime.now()
     
     if user_id not in user_balances:
@@ -428,6 +570,9 @@ async def farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if user_id not in farm_fail_chances:
         farm_fail_chances[user_id] = FARM_FAIL_CHANCE
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check cooldown
     if user_id in farm_cooldowns:
@@ -516,6 +661,9 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if user_id not in farm_fail_chances:
         farm_fail_chances[user_id] = FARM_FAIL_CHANCE
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check arguments
     if not context.args:
@@ -678,6 +826,7 @@ async def upgrade_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def upgrade_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
     
     # Initialize user data if not exists
     if user_id not in user_inventories:
@@ -688,6 +837,9 @@ async def upgrade_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if user_id not in item_levels:
         item_levels[user_id] = {}
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check arguments
     if not context.args or len(context.args) != 1:
@@ -784,6 +936,9 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in item_levels:
         item_levels[user_id] = {}
     
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
+    
     # Check if inventory is empty
     if not user_inventories[user_id]:
         await update.message.reply_text(
@@ -817,6 +972,13 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 inventory_text += f"└ Опыт: {exp}/{max_exp}\n"
                 inventory_text += f"└ ID: {item['id']}\n\n"
     
+    # Добавляем информацию о текущем ивенте, если активен
+    if active_events["exp_booster"]:
+        inventory_text += f"🎉 Активно событие 'Бустер опыта x2'!\n"
+        if event_end_time:
+            minutes_left = max(0, int((event_end_time - datetime.now()).total_seconds() / 60))
+            inventory_text += f"⏱️ Осталось: {minutes_left} мин.\n\n"
+    
     inventory_text += f"💰 Ваш баланс: {user_balances[user_id]} ktn$\n\n"
     inventory_text += "Предметы можно приобрести в магазине: /shop stock\n"
     inventory_text += "Для улучшения предмета используйте: /upgrade_inv [ID]"
@@ -825,12 +987,16 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
     
     if user_id not in user_balances:
         user_balances[user_id] = 0
     
     if user_id not in user_inventories:
         user_inventories[user_id] = {}
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check arguments
     if len(context.args) < 1:
@@ -940,6 +1106,10 @@ def add_experience(user_id, game_type):
     # Get experience amount based on game type
     exp_amount = EXP_PER_WIN.get(game_type, 5)
     
+    # Double experience if the booster event is active
+    if active_events["exp_booster"]:
+        exp_amount *= 2
+    
     # Add experience to all items in inventory
     for item_key in user_inventories[user_id]:
         if user_inventories[user_id][item_key] > 0:
@@ -953,6 +1123,27 @@ def add_experience(user_id, game_type):
             # Add experience
             item_experience[user_id][item_key] += exp_amount
 
+# Function to update user game statistics
+def update_game_stats(user_id, game_type, win):
+    if user_id not in user_game_stats:
+        user_game_stats[user_id] = {}
+    
+    # Initialize stats for this game type if not exists
+    game_win_key = f"{game_type}_wins"
+    game_loss_key = f"{game_type}_losses"
+    
+    if game_win_key not in user_game_stats[user_id]:
+        user_game_stats[user_id][game_win_key] = 0
+    
+    if game_loss_key not in user_game_stats[user_id]:
+        user_game_stats[user_id][game_loss_key] = 0
+    
+    # Update win or loss count
+    if win:
+        user_game_stats[user_id][game_win_key] += 1
+    else:
+        user_game_stats[user_id][game_loss_key] += 1
+
 async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -965,6 +1156,9 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if user_id not in item_levels:
         item_levels[user_id] = {}
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check arguments
     if len(context.args) != 2:
@@ -1085,14 +1279,25 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Add experience to items
         add_experience(user_id, "coinflip")
+        
+        # Update game stats
+        update_game_stats(user_id, "coinflip", True)
     else:
         winnings = 0
         result_text = "❌ Вы проиграли!\n💰 Ставка потеряна."
+        
+        # Update game stats
+        update_game_stats(user_id, "coinflip", False)
     
     # Bonus info if lucky coin was used
     bonus_text = ""
     if has_lucky_coin:
         bonus_text = f"\n🪙 Счастливая монета (Уровень {lucky_coin_level}) дала вам +{bonus_chance}% к шансу выигрыша!"
+    
+    # Информация о текущем ивенте
+    event_text = ""
+    if active_events["exp_booster"] and user_won:
+        event_text = f"\n🎉 Бустер опыта x2 активен! Получено удвоенное количество опыта!"
     
     # Сохраняем в Firebase
     await save_user_data()
@@ -1106,7 +1311,7 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
              f"💰 Ставка: {bet} ktn$\n"
              f"🎯 Ваш выбор: {player_choice_ru}\n"
              f"🎲 Выпало: {coin_result_ru}\n\n"
-             f"{result_text}{bonus_text}\n\n"
+             f"{result_text}{bonus_text}{event_text}\n\n"
              f"💹 Ваш баланс: {user_balances[user_id]} ktn$"
     )
 
@@ -1117,6 +1322,12 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_balances:
         user_balances[user_id] = 0
     
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
+    
+    # Сохраняем в Firebase
+    await save_user_data()
+    
     await update.message.reply_text(
         f"💰 Баланс пользователя {user_name}\n\n"
         f"{user_balances[user_id]} ktn$"
@@ -1126,6 +1337,9 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
     current_time = datetime.now()
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check for anti-spam cooldown
     if user_id in case_cooldowns:
@@ -1401,9 +1615,19 @@ def generate_mines_board(game):
         if revealed_count >= TOTAL_TILES - mines_left - 1:
             bonus *= 2  # Double bonus for high risk plays
         
-        multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
+        # Fix: Ensure multiplier doesn't become 1.0 when only one tile left
+        if tiles_left == 1 and mines_left == 0:
+            # If last tile and it's safe, use the previous multiplier calculation
+            multiplier = base_multiplier * (1 + bonus + mines_bonus)
+        else:
+            multiplier = base_multiplier * (1 + bonus + mines_bonus)
+        
+        multiplier = round(multiplier, 2)
     else:
-        multiplier = 1.0
+        # Even if tiles_left == mines_left, give a reasonable multiplier
+        # based on how many tiles were already revealed safely
+        multiplier = max(2.0, revealed_count * 0.5)
+        multiplier = round(multiplier, 2)
     
     # Create keyboard with tile buttons
     keyboard = []
@@ -1480,6 +1704,17 @@ def generate_mines_board(game):
             else:
                 radar_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["detect"] * 100
                 status += f"\n📡 Радар опасности (Уровень {game['radar_level']}) активен ({radar_chance}% шанс обнаружения мин)"
+        
+        # Add poison protection info if available
+        if game["has_poison_protection"] and not game["poison_protection_used"]:
+            protection_chance = ITEM_EFFECTS["poison_protection"][game["poison_protection_level"]] * 100
+            status += f"\n🧪 Защита от яда (Уровень {game['poison_protection_level']}) активна ({protection_chance}% шанс защиты)"
+        elif game["poison_protection_used"]:
+            status += "\n🧪 Защита от яда использована!"
+        
+        # Add event info if any is active
+        if active_events["exp_booster"]:
+            status += "\n🎉 Бустер опыта x2 активен! Получите удвоенный опыт за победу!"
             
         status += "\n\nНажимайте на клетки, чтобы открыть их!"
     
@@ -1497,6 +1732,9 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if user_id not in item_levels:
         item_levels[user_id] = {}
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check if user already has an active game
     if user_id in active_games:
@@ -1635,6 +1873,10 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "poisonous_mines": []  # Для ядовитых мин
     }
     
+    # Check if we should rig the game based on user's past performance
+    if should_rig_mines(user_id):
+        game_state = rig_mines_game(game_state)
+    
     active_games[user_id] = game_state
     
     # Create and send the game board
@@ -1714,19 +1956,32 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mines_left = game["num_mines"]
             tiles_left = TOTAL_TILES - revealed_count
             
-            # Improved multiplier formula
+            # Improved multiplier formula with fix for last tile
             if tiles_left > mines_left:
+                # Base multiplier calculation
                 base_multiplier = tiles_left / (tiles_left - mines_left)
+                
+                # Apply bonus for more revealed tiles
                 bonus = revealed_count * 0.15
+                
+                # Apply bonus for more mines (higher risk)
                 mines_bonus = (mines_left / TOTAL_TILES) * 2.0
                 
+                # Special case for almost all tiles revealed
                 if revealed_count >= TOTAL_TILES - mines_left - 1:
                     bonus *= 2
                 
-                multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
+                # Fix for last tile
+                if tiles_left == 1 and mines_left == 0:
+                    # Use previous calculation logic to keep multiplier high
+                    multiplier = base_multiplier * (1 + bonus + mines_bonus)
+                else:
+                    multiplier = base_multiplier * (1 + bonus + mines_bonus)
             else:
-                multiplier = 1.0
+                # Even if tiles_left == mines_left, give a reasonable multiplier
+                multiplier = max(2.0, revealed_count * 0.5)
             
+            multiplier = round(multiplier, 2)
             win_amount = round(game["bet"] * multiplier)
             
             # Update game state
@@ -1739,6 +1994,9 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Add experience to items
             add_experience(game_owner_id, "mines")
+            
+            # Update game stats
+            update_game_stats(game_owner_id, "mines", True)
             
             # Сохраняем в Firebase
             await save_user_data()
@@ -1764,6 +2022,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💎 Выигрыш: {win_amount} ktn$\n\n"
                 f"⏱️ Сообщение будет удалено через 5 секунд"
             )
+            
+            # Информация о текущем ивенте
+            if active_events["exp_booster"]:
+                status += f"\n\n🎉 Бустер опыта x2 активен! Получено удвоенное количество опыта!"
             
             try:
                 await context.bot.edit_message_text(
@@ -1797,8 +2059,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Check if tile is a mine
             if position in game["mine_positions"]:
-                # Проверяем, будет ли мина ядовитой (40% шанс)
-                is_poisonous = random.randint(1, 100) <= POISONOUS_MINE_CHANCE
+                # Проверяем, будет ли мина ядовитой (12.5% шанс)
+                is_poisonous = random.random() < (POISONOUS_MINE_CHANCE / 100)
                 
                 # Check if danger radar might explode
                 if game["has_radar"]:
@@ -1908,6 +2170,9 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Game over - user hit a mine
                 game["game_over"] = True
                 
+                # Update game stats
+                update_game_stats(game_owner_id, "mines", False)
+                
                 # Create keyboard with all mines revealed
                 keyboard = []
                 for row in range(ROWS):
@@ -1973,6 +2238,9 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         )
                     except Exception:
                         pass
+                
+                # Сохраняем статистику и данные
+                await save_user_data()
                 
                 # Clean up
                 del active_games[game_owner_id]
@@ -2054,7 +2322,7 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         mines_left = game["num_mines"]
         tiles_left = TOTAL_TILES - revealed_count
         
-        # Calculate final multiplier with same formula as in send_game_board
+        # Calculate final multiplier with improved formula
         if tiles_left > mines_left:
             # Base multiplier calculation
             base_multiplier = tiles_left / (tiles_left - mines_left)
@@ -2069,9 +2337,18 @@ async def show_all_mines(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             if revealed_count >= TOTAL_TILES - mines_left - 1:
                 bonus *= 2  # Double bonus for high risk plays
             
-            multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
+            # Fix for last tile
+            if tiles_left == 1 and mines_left == 0:
+                # Use previous calculation logic
+                multiplier = base_multiplier * (1 + bonus + mines_bonus)
+            else:
+                multiplier = base_multiplier * (1 + bonus + mines_bonus)
+                
+            multiplier = round(multiplier, 2)
         else:
-            multiplier = 1.0
+            # Even if tiles_left == mines_left, give a reasonable multiplier
+            multiplier = max(2.0, revealed_count * 0.5)
+            multiplier = round(multiplier, 2)
             
         status = (
             f"🎉 {game['user_name']} выиграл {game['win_amount']} ktn$! 🎉\n\n"
@@ -2117,6 +2394,9 @@ async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if user_id not in item_levels:
         item_levels[user_id] = {}
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check if user already has an active game
     if user_id in active_games:
@@ -2276,6 +2556,10 @@ async def crash_game_loop(context, user_id):
             elif game["shield_used"]:
                 status += f"🔰 Анти-краш щит уже использован!\n"
             
+            # Add event info if any is active
+            if active_events["exp_booster"]:
+                status += f"🎉 Бустер опыта x2 активен! Получите удвоенный опыт за победу!\n"
+            
             # Rocket animation based on multiplier
             rocket_stages = [
                 "🔥 Ракета взлетает...",
@@ -2374,6 +2658,9 @@ async def crash_game_loop(context, user_id):
                     # Game over - crash
                     game["game_over"] = True
                     
+                    # Update game stats
+                    update_game_stats(user_id, "crash", False)
+                    
                     # Show crash message
                     crash_message = (
                         f"🚀 *CRASH* | Игрок: {game['user_name']}\n\n"
@@ -2393,6 +2680,9 @@ async def crash_game_loop(context, user_id):
                         )
                     except Exception:
                         pass
+                    
+                    # Сохраняем в Firebase
+                    await save_user_data()
                     
                     # Schedule message deletion
                     asyncio.create_task(delete_crash_message(context, game, 5))
@@ -2473,6 +2763,9 @@ async def handle_crash_button(update: Update, context, query, callback_parts):
             # Add experience to items
             add_experience(user_id, "crash")
             
+            # Update game stats
+            update_game_stats(user_id, "crash", True)
+            
             # Сохраняем в Firebase
             await save_user_data()
             
@@ -2482,8 +2775,13 @@ async def handle_crash_button(update: Update, context, query, callback_parts):
                 f"✅ *Вы успешно забрали выигрыш при {game['current_multiplier']}x!*\n\n"
                 f"💰 Ставка: {game['bet']} ktn$\n"
                 f"💎 Выигрыш: {win_amount} ktn$\n\n"
-                f"⏱️ Сообщение будет удалено через 5 секунд"
             )
+            
+            # Добавляем информацию о бустере опыта, если активен
+            if active_events["exp_booster"]:
+                win_message += f"🎉 Бустер опыта x2 активен! Получено удвоенное количество опыта!\n\n"
+                
+            win_message += f"⏱️ Сообщение будет удалено через 5 секунд"
             
             try:
                 await context.bot.edit_message_text(
@@ -2557,6 +2855,9 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id not in user_balances:
         user_balances[user_id] = 0
+    
+    # Сохраняем имя пользователя для топа
+    user_display_names[user_id] = user_name
     
     # Check if user already has an active game
     if user_id in active_games:
@@ -2665,9 +2966,13 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_balances[user_id] += winnings
             # Add experience to items
             add_experience(user_id, "blackjack")
+            # Update game stats
+            update_game_stats(user_id, "blackjack", True)
         else:  # dealer_blackjack
             # Dealer has blackjack - player loses
             game_state["result"] = "dealer_blackjack"
+            # Update game stats
+            update_game_stats(user_id, "blackjack", False)
             
         # Сохраняем в Firebase
         await save_user_data()
@@ -2722,6 +3027,10 @@ async def send_blackjack_board(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Bet information
         status += f"💰 Ставка: {game['bet']} ktn$\n"
+        
+        # Event information if active
+        if active_events["exp_booster"]:
+            status += f"🎉 Бустер опыта x2 активен! Получите удвоенный опыт за победу!\n"
         
         # Result information if game is over
         if game["game_over"]:
@@ -2812,6 +3121,9 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
                 game["game_over"] = True
                 game["result"] = "bust"
                 
+                # Update game stats
+                update_game_stats(user_id, "blackjack", False)
+                
                 # Сохраняем в Firebase
                 await save_user_data()
             
@@ -2835,14 +3147,20 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
                 user_balances[user_id] += winnings
                 # Add experience to items
                 add_experience(user_id, "blackjack")
+                # Update game stats
+                update_game_stats(user_id, "blackjack", True)
             elif game["dealer_value"] > game["player_value"]:
                 game["result"] = "dealer_win"
+                # Update game stats
+                update_game_stats(user_id, "blackjack", False)
             elif game["dealer_value"] < game["player_value"]:
                 game["result"] = "win"
                 winnings = game["bet"] * 2
                 user_balances[user_id] += winnings
                 # Add experience to items
                 add_experience(user_id, "blackjack")
+                # Update game stats
+                update_game_stats(user_id, "blackjack", True)
             else:
                 game["result"] = "push"
                 user_balances[user_id] += game["bet"]  # Return bet
@@ -2911,9 +3229,13 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
                     user_balances[user_id] += winnings
                     # Add experience to items
                     add_experience(user_id, "blackjack")
+                    # Update game stats
+                    update_game_stats(user_id, "blackjack", True)
                 else:  # dealer_blackjack
                     # Dealer has blackjack - player loses
                     new_game["result"] = "dealer_blackjack"
+                    # Update game stats
+                    update_game_stats(user_id, "blackjack", False)
                     
                 # Сохраняем в Firebase
                 await save_user_data()
@@ -2930,6 +3252,17 @@ async def initialize_bot(context: ContextTypes.DEFAULT_TYPE):
         print("Загрузка данных из Firebase...")
         await load_user_data()
 
+# Функция для запуска проверки ивентов
+async def event_checker(context: ContextTypes.DEFAULT_TYPE):
+    """Запускает проверку и обработку ивентов"""
+    await check_and_start_events(context)
+    
+    # Запланировать следующую проверку через минуту
+    context.application.create_task(
+        event_checker(context),
+        when=60  # Проверять каждую минуту
+    )
+
 def main():
     try:
         # Create the Application
@@ -2942,6 +3275,7 @@ def main():
         app.add_handler(CommandHandler("upgrade_farm", upgrade_farm))
         app.add_handler(CommandHandler("upgrade_inv", upgrade_inventory))
         app.add_handler(CommandHandler("balance", balance))
+        app.add_handler(CommandHandler("top_bal", top_balance))
         app.add_handler(CommandHandler("opencase", opencase))
         app.add_handler(CommandHandler("shop", shop))
         app.add_handler(CommandHandler("inventory", inventory))
@@ -2962,6 +3296,7 @@ def main():
                     # Обновляем глобальные переменные
                     global user_balances, farm_values, max_farm_values
                     global farm_fail_chances, user_inventories, item_experience, item_levels
+                    global user_game_stats, user_display_names
                     
                     user_balances = load_user_data_sync.get("user_balances", {})
                     farm_values = load_user_data_sync.get("farm_values", {})
@@ -2970,6 +3305,8 @@ def main():
                     user_inventories = load_user_data_sync.get("user_inventories", {})
                     item_experience = load_user_data_sync.get("item_experience", {})
                     item_levels = load_user_data_sync.get("item_levels", {})
+                    user_game_stats = load_user_data_sync.get("user_game_stats", {})
+                    user_display_names = load_user_data_sync.get("user_display_names", {})
                     
                     # Конвертируем строковые ключи в числовые для user_id
                     user_balances = {int(k): v for k, v in user_balances.items()}
@@ -2979,10 +3316,15 @@ def main():
                     user_inventories = {int(k): v for k, v in user_inventories.items()}
                     item_experience = {int(k): v for k, v in item_experience.items()}
                     item_levels = {int(k): v for k, v in item_levels.items()}
+                    user_game_stats = {int(k): v for k, v in user_game_stats.items()}
+                    user_display_names = {int(k): v for k, v in user_display_names.items()}
                     
                     print("✅ Данные пользователей успешно загружены из Firebase")
             except Exception as e:
                 print(f"❌ Ошибка при загрузке данных из Firebase при старте: {e}")
+        
+        # Запускаем проверку ивентов
+        app.create_task(event_checker(app.bot))
         
         # Start the Bot
         print("Бот запущен!")
