@@ -1514,22 +1514,231 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             
         game = active_games[user_id]
         
-        # Проверяем блокировку для предотвращения дублирования
-        if user_id in game_locks and game_locks[user_id]:
+        # Генерируем доску напрямую без блокировок
+        status, reply_markup = generate_mines_board(game)
+        
+        # Update or send new message
+        if "message_id" in game and "chat_id" in game:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=game["chat_id"],
+                    message_id=game["message_id"],
+                    text=status,
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                # If there's an error updating, send a new message
+                message = await context.bot.send_message(
+                    chat_id=game["chat_id"],
+                    text=status,
+                    reply_markup=reply_markup
+                )
+                game["message_id"] = message.message_id
+                
+                # Try to pin the message
+                try:
+                    # Unpin old messages first if any
+                    if game.get("pinned", False):
+                        try:
+                            await context.bot.unpin_chat_message(
+                                chat_id=game["chat_id"],
+                                message_id=game["message_id"]
+                            )
+                        except Exception:
+                            pass
+                    
+                    await context.bot.pin_chat_message(
+                        chat_id=game["chat_id"],
+                        message_id=message.message_id,
+                        disable_notification=True
+                    )
+                    game["pinned"] = True
+                except Exception:
+                    # If pinning fails, continue anyway
+                    game["pinned"] = False
+        else:
+            # First time sending the board
+            message = await update.message.reply_text(
+                text=status,
+                reply_markup=reply_markup
+            )
+            game["message_id"] = message.message_id
+            game["chat_id"] = update.effective_chat.id
+            
+            # Try to pin the message
+            try:
+                await context.bot.pin_chat_message(
+                    chat_id=game["chat_id"],
+                    message_id=message.message_id,
+                    disable_notification=True
+                )
+                game["pinned"] = True
+            except Exception:
+                # If pinning fails, continue anyway
+                game["pinned"] = False
+    except Exception as e:
+        print(f"Error in send_game_board: {e}")
+
+def generate_mines_board(game):
+    # Calculate multiplier based on revealed safe tiles
+    revealed_count = len(game["revealed_positions"])
+    
+    # Calculate current multiplier with enhanced formula
+    mines_left = game["num_mines"]
+    tiles_left = TOTAL_TILES - revealed_count
+    
+    # Improved multiplier formula that scales better with mines and revealed tiles
+    if tiles_left > mines_left:
+        # Base multiplier calculation
+        base_multiplier = tiles_left / (tiles_left - mines_left)
+        
+        # Apply bonus for more revealed tiles
+        bonus = revealed_count * 0.15
+        
+        # Apply bonus for more mines (higher risk)
+        mines_bonus = (mines_left / TOTAL_TILES) * 2.0
+        
+        # Special case for almost all tiles revealed
+        if revealed_count >= TOTAL_TILES - mines_left - 1:
+            bonus *= 2  # Double bonus for high risk plays
+        
+        multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
+    else:
+        multiplier = 1.0
+    
+    # Create keyboard with tile buttons
+    keyboard = []
+    for row in range(ROWS):
+        keyboard_row = []
+        for col in range(COLS):
+            position = row * COLS + col
+            
+            if position in game["protected_positions"]:
+                # This is a position protected by aura
+                button_text = "🛡️"
+            elif position in game["revealed_positions"]:
+                # This is a revealed safe tile
+                button_text = "✅"
+            elif position in game["radar_area"]:
+                # This is a radar detected area
+                button_text = "❓"
+            else:
+                # This is an unrevealed tile
+                button_text = "🔲"
+                
+            callback_data = f"tile_{position}_{game['user_id']}"  # Add user_id to callback data for security
+            keyboard_row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
+        
+        keyboard.append(keyboard_row)
+    
+    # Add cashout button if at least 3 safe tiles revealed
+    if revealed_count >= 3 and not game["game_over"]:
+        keyboard.append([
+            InlineKeyboardButton(f"💰 ЗАБРАТЬ ВЫИГРЫШ ({multiplier}x) 💰", callback_data=f"cashout_{game['user_id']}")
+        ])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Calculate potential win
+    potential_win = round(game["bet"] * multiplier)
+    
+    # Create status message
+    if game["game_over"]:
+        if game["win"]:
+            status = (
+                f"🎉 {game['user_name']} выиграл {game['win_amount']} ktn$! 🎉\n\n"
+                f"💰 Множитель: {multiplier}x\n"
+                f"💵 Ставка: {game['bet']} ktn$\n"
+                f"💎 Выигрыш: {game['win_amount']} ktn$"
+            )
+        else:
+            status = (
+                f"💥 БУМ! {game['user_name']} подорвался на мине! 💥\n\n"
+                f"❌ Ставка {game['bet']} ktn$ потеряна.\n"
+                f"🎮 Удачи в следующий раз!"
+            )
+    else:
+        status = (
+            f"🎮 MINES | Игрок: {game['user_name']}\n\n"
+            f"💣 Мин на поле: {game['num_mines']}\n"
+            f"💰 Ставка: {game['bet']} ktn$\n"
+            f"✅ Открыто безопасных клеток: {revealed_count}\n"
+            f"📈 Текущий множитель: {multiplier}x\n"
+            f"💎 Потенциальный выигрыш: {potential_win} ktn$"
+        )
+        
+        # Add aura info if available
+        if game["has_aura"] and not game["aura_used"]:
+            aura_chance = ITEM_EFFECTS["defending_aura"][game["aura_level"]] * 100
+            status += f"\n🛡️ Защитная аура (Уровень {game['aura_level']}) активна ({aura_chance}% шанс защиты от мины)"
+        elif game["aura_used"]:
+            status += "\n🛡️ Защитная аура использована!"
+            
+        # Add radar info if available
+        if game["has_radar"]:
+            if game["radar_used"]:
+                status += "\n📡 Радар опасности обнаружил подозрительную область (❓)"
+            else:
+                radar_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["detect"] * 100
+                status += f"\n📡 Радар опасности (Уровень {game['radar_level']}) активен ({radar_chance}% шанс обнаружения мин)"
+            
+        status += "\n\nНажимайте на клетки, чтобы открыть их!"
+    
+    return status, reply_markup
+
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    
+    try:
+        # Extract data from callback
+        callback_parts = query.data.split('_')
+        caller_id = update.effective_user.id
+        
+        # Handle blackjack callbacks
+        if callback_parts[0] == "bj":
+            await handle_blackjack_button(update, context, query, callback_parts)
             return
             
-        # Устанавливаем блокировку
-        game_locks[user_id] = True
+        # Handle crash callbacks
+        if callback_parts[0] == "crash":
+            await handle_crash_button(update, context, query, callback_parts)
+            return
         
-        try:
-            # Calculate multiplier based on revealed safe tiles
-            revealed_count = len(game["revealed_positions"])
+        # Extract user_id from callback data for mines game
+        if len(callback_parts) < 3:
+            await query.answer("Неверный формат данных кнопки", show_alert=True)
+            return
             
-            # Calculate current multiplier with enhanced formula
+        game_owner_id = int(callback_parts[-1])
+        
+        # Security check: Only game owner can press buttons
+        if caller_id != game_owner_id:
+            await query.answer("Это не ваша игра! Вы не можете нажимать на кнопки в чужой игре.", show_alert=False)
+            return
+        
+        # Check if game exists
+        if game_owner_id not in active_games:
+            await query.answer("Игра не найдена! Возможно, она была сброшена.", show_alert=True)
+            return
+        
+        game = active_games[game_owner_id]
+        
+        # Check if game is over
+        if game["game_over"]:
+            await query.answer("Эта игра уже завершена!", show_alert=True)
+            return
+        
+        # Answer the callback query to stop loading indicator
+        await query.answer()
+        
+        # Handle cashout
+        if callback_parts[0] == "cashout":
+            # Calculate win amount with improved multiplier
+            revealed_count = len(game["revealed_positions"])
             mines_left = game["num_mines"]
             tiles_left = TOTAL_TILES - revealed_count
             
-            # Improved multiplier formula that scales better with mines and revealed tiles
+            # Improved multiplier formula
             if tiles_left > mines_left:
                 # Base multiplier calculation
                 base_multiplier = tiles_left / (tiles_left - mines_left)
@@ -1548,246 +1757,131 @@ async def send_game_board(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             else:
                 multiplier = 1.0
             
-            # Create keyboard with tile buttons
-            keyboard = []
-            for row in range(ROWS):
-                keyboard_row = []
-                for col in range(COLS):
-                    position = row * COLS + col
-                    
-                    if position in game["protected_positions"]:
-                        # This is a position protected by aura
-                        button_text = "🛡️"
-                    elif position in game["revealed_positions"]:
-                        # This is a revealed safe tile
-                        button_text = "✅"
-                    elif position in game["radar_area"]:
-                        # This is a radar detected area
-                        button_text = "❓"
-                    else:
-                        # This is an unrevealed tile
-                        button_text = "🔲"
-                        
-                    callback_data = f"tile_{position}_{user_id}"  # Add user_id to callback data for security
-                    keyboard_row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
-                
-                keyboard.append(keyboard_row)
+            win_amount = round(game["bet"] * multiplier)
             
-            # Add cashout button if at least 3 safe tiles revealed
-            if revealed_count >= 3 and not game["game_over"]:
-                keyboard.append([
-                    InlineKeyboardButton(f"💰 ЗАБРАТЬ ВЫИГРЫШ ({multiplier}x) 💰", callback_data=f"cashout_{user_id}")
-                ])
+            # Update game state
+            game["game_over"] = True
+            game["win"] = True
+            game["win_amount"] = win_amount
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Update user balance
+            user_balances[game_owner_id] += win_amount
             
-            # Calculate potential win
-            potential_win = round(game["bet"] * multiplier)
+            # Add experience to items
+            add_experience(game_owner_id, "mines")
             
-            # Create status message
-            if game["game_over"]:
-                if game["win"]:
-                    status = (
-                        f"🎉 {game['user_name']} выиграл {game['win_amount']} ktn$! 🎉\n\n"
-                        f"💰 Множитель: {multiplier}x\n"
-                        f"💵 Ставка: {game['bet']} ktn$\n"
-                        f"💎 Выигрыш: {game['win_amount']} ktn$"
-                    )
-                else:
-                    status = (
-                        f"💥 БУМ! {game['user_name']} подорвался на мине! 💥\n\n"
-                        f"❌ Ставка {game['bet']} ktn$ потеряна.\n"
-                        f"🎮 Удачи в следующий раз!"
-                    )
-            else:
-                status = (
-                    f"🎮 MINES | Игрок: {game['user_name']}\n\n"
-                    f"💣 Мин на поле: {game['num_mines']}\n"
-                    f"💰 Ставка: {game['bet']} ktn$\n"
-                    f"✅ Открыто безопасных клеток: {revealed_count}\n"
-                    f"📈 Текущий множитель: {multiplier}x\n"
-                    f"💎 Потенциальный выигрыш: {potential_win} ktn$"
-                )
-                
-                # Add aura info if available
-                if game["has_aura"] and not game["aura_used"]:
-                    aura_chance = ITEM_EFFECTS["defending_aura"][game["aura_level"]] * 100
-                    status += f"\n🛡️ Защитная аура (Уровень {game['aura_level']}) активна ({aura_chance}% шанс защиты от мины)"
-                elif game["aura_used"]:
-                    status += "\n🛡️ Защитная аура использована!"
-                    
-                # Add radar info if available
-                if game["has_radar"]:
-                    if game["radar_used"]:
-                        status += "\n📡 Радар опасности обнаружил подозрительную область (❓)"
-                    else:
-                        radar_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["detect"] * 100
-                        status += f"\n📡 Радар опасности (Уровень {game['radar_level']}) активен ({radar_chance}% шанс обнаружения мин)"
-                    
-                status += "\n\nНажимайте на клетки, чтобы открыть их!"
+            # Сохраняем в Firebase
+            await save_user_data()
             
-            # Update or send new message
-            if "message_id" in game and "chat_id" in game:
+            # Reveal all mines
+            await show_all_mines(update, context, game_owner_id)
+            
+            # Schedule message deletion after 5 seconds
+            asyncio.create_task(delete_game_message_after_delay(context, game, 5))
+            
+            # Unpin if pinned
+            if game.get("pinned", False):
                 try:
-                    await context.bot.edit_message_text(
+                    await context.bot.unpin_chat_message(
                         chat_id=game["chat_id"],
-                        message_id=game["message_id"],
-                        text=status,
-                        reply_markup=reply_markup
+                        message_id=game["message_id"]
                     )
-                except Exception as e:
-                    # If there's an error updating, send a new message
-                    message = await context.bot.send_message(
-                        chat_id=game["chat_id"],
-                        text=status,
-                        reply_markup=reply_markup
-                    )
-                    game["message_id"] = message.message_id
-                    
-                    # Try to pin the message
-                    try:
-                        # Unpin old messages first if any
-                        if game.get("pinned", False):
-                            try:
-                                await context.bot.unpin_chat_message(
-                                    chat_id=game["chat_id"],
-                                    message_id=game["message_id"]
-                                )
-                            except Exception:
-                                pass
-                        
-                        await context.bot.pin_chat_message(
-                            chat_id=game["chat_id"],
-                            message_id=message.message_id,
-                            disable_notification=True
-                        )
-                        game["pinned"] = True
-                    except Exception:
-                        # If pinning fails, continue anyway
-                        game["pinned"] = False
-            else:
-                # First time sending the board
-                message = await update.message.reply_text(
-                    text=status,
-                    reply_markup=reply_markup
-                )
-                game["message_id"] = message.message_id
-                game["chat_id"] = update.effective_chat.id
-                
-                # Try to pin the message
-                try:
-                    await context.bot.pin_chat_message(
-                        chat_id=game["chat_id"],
-                        message_id=message.message_id,
-                        disable_notification=True
-                    )
-                    game["pinned"] = True
                 except Exception:
-                    # If pinning fails, continue anyway
-                    game["pinned"] = False
-        finally:
-            # Снимаем блокировку
-            game_locks[user_id] = False
-    except Exception as e:
-        print(f"Error in send_game_board: {e}")
-        # Снимаем блокировку в случае ошибки
-        if user_id in game_locks:
-            game_locks[user_id] = False
-
-async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        query = update.callback_query
-        
-        # Extract data from callback
-        callback_parts = query.data.split('_')
-        caller_id = update.effective_user.id
-        
-        # Handle blackjack callbacks
-        if callback_parts[0] == "bj":
-            await handle_blackjack_button(update, context, query, callback_parts)
-            return
+                    pass
             
-        # Handle crash callbacks
-        if callback_parts[0] == "crash":
-            await handle_crash_button(update, context, query, callback_parts)
+            # Clean up
+            del active_games[game_owner_id]
             return
         
-        # Extract user_id from callback data for mines game
-        game_owner_id = int(callback_parts[-1])
-        
-        # Security check: Only game owner can press buttons
-        if caller_id != game_owner_id:
-            await query.answer("Это не ваша игра! Вы не можете нажимать на кнопки в чужой игре.", show_alert=False)
-            return
-        
-        # Check if game exists
-        if game_owner_id not in active_games:
-            await query.answer("Игра не найдена! Возможно, она была сброшена.", show_alert=True)
-            return
-        
-        game = active_games[game_owner_id]
-        
-        # Проверяем блокировку
-        if game_owner_id in game_locks and game_locks[game_owner_id]:
-            await query.answer("Подождите, предыдущее действие ещё обрабатывается...", show_alert=False)
-            return
-        
-        # Устанавливаем блокировку
-        game_locks[game_owner_id] = True
-        
-        try:
-            # Check if game is over
-            if game["game_over"]:
-                await query.answer("Эта игра уже завершена!", show_alert=True)
-                game_locks[game_owner_id] = False
+        # Handle tile click
+        if callback_parts[0] == "tile":
+            if len(callback_parts) < 3:
+                return
+                
+            position = int(callback_parts[1])
+            
+            # Check if tile already revealed
+            if position in game["revealed_positions"] or position in game["protected_positions"]:
+                await query.answer("Эта клетка уже открыта!")
                 return
             
-            # Answer the callback query to stop loading indicator
-            await query.answer()
-            
-            # Handle cashout
-            if callback_parts[0] == "cashout":
-                # Calculate win amount with improved multiplier
-                revealed_count = len(game["revealed_positions"])
-                mines_left = game["num_mines"]
-                tiles_left = TOTAL_TILES - revealed_count
+            # Check if tile is a mine
+            if position in game["mine_positions"]:
+                # Проверяем, будет ли мина ядовитой (40% шанс)
+                is_poisonous = random.randint(1, 100) <= POISONOUS_MINE_CHANCE
                 
-                # Improved multiplier formula
-                if tiles_left > mines_left:
-                    # Base multiplier calculation
-                    base_multiplier = tiles_left / (tiles_left - mines_left)
+                # Check if danger radar might explode
+                if game["has_radar"]:
+                    # Get explode chance based on level
+                    explode_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["explode"]
                     
-                    # Apply bonus for more revealed tiles
-                    bonus = revealed_count * 0.15
-                    
-                    # Apply bonus for more mines (higher risk)
-                    mines_bonus = (mines_left / TOTAL_TILES) * 2.0
-                    
-                    # Special case for almost all tiles revealed
-                    if revealed_count >= TOTAL_TILES - mines_left - 1:
-                        bonus *= 2  # Double bonus for high risk plays
-                    
-                    multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
-                else:
-                    multiplier = 1.0
+                    if random.random() < explode_chance:
+                        # Radar explodes
+                        if "danger_radar" in user_inventories[game_owner_id]:
+                            user_inventories[game_owner_id]["danger_radar"] -= 1
+                        
+                        await query.answer("📡 Ваш радар опасности самоуничтожился!", show_alert=True)
+                        game["has_radar"] = False
                 
-                win_amount = round(game["bet"] * multiplier)
+                # Check if user has active aura
+                if game["has_aura"] and not game["aura_used"]:
+                    # Get aura protection chance based on level
+                    aura_chance = ITEM_EFFECTS["defending_aura"][game["aura_level"]]
+                    
+                    if random.random() < aura_chance:  # Chance to activate
+                        # Aura activation - save the player
+                        game["aura_used"] = True
+                        game["protected_positions"].append(position)
+                        
+                        # Use up the aura
+                        if "defending_aura" in user_inventories[game_owner_id]:
+                            user_inventories[game_owner_id]["defending_aura"] -= 1
+                        
+                        # Reshuffle the mines
+                        remaining_positions = [p for p in range(TOTAL_TILES) if p not in game["revealed_positions"] and p not in game["protected_positions"]]
+                        game["mine_positions"] = random.sample(remaining_positions, min(game["num_mines"], len(remaining_positions)))
+                        
+                        # Update the game board
+                        await query.answer("🛡️ Защитная аура сработала! Вы спаслись от мины!", show_alert=True)
+                        
+                        # Send a new board directly
+                        try:
+                            status, reply_markup = generate_mines_board(game)
+                            
+                            await context.bot.edit_message_text(
+                                chat_id=game["chat_id"],
+                                message_id=game["message_id"],
+                                text=status,
+                                reply_markup=reply_markup
+                            )
+                        except Exception as e:
+                            print(f"Error updating board after aura: {e}")
+                        
+                        return
                 
-                # Update game state
+                # Если мина ядовитая, снимаем с баланса
+                if is_poisonous:
+                    # Добавляем в список ядовитых мин
+                    game["poisonous_mines"].append(position)
+                    
+                    # Снимаем с баланса пользователя (баланс / 1.5)
+                    if user_balances[game_owner_id] > 0:
+                        penalty = int(user_balances[game_owner_id] / 1.5)
+                        # Убеждаемся, что баланс не станет отрицательным
+                        if penalty > user_balances[game_owner_id]:
+                            penalty = user_balances[game_owner_id]
+                        user_balances[game_owner_id] -= penalty
+                        
+                        # Сохраняем в Firebase
+                        await save_user_data()
+                        
+                        # Сообщаем пользователю о потере средств
+                        await query.answer(f"☠️ Вы попали на ЯДОВИТУЮ мину! Потеряно {penalty} ktn$", show_alert=True)
+                
+                # Game over - user hit a mine
                 game["game_over"] = True
-                game["win"] = True
-                game["win_amount"] = win_amount
                 
-                # Update user balance
-                user_balances[game_owner_id] += win_amount
-                
-                # Add experience to items
-                add_experience(game_owner_id, "mines")
-                
-                # Сохраняем в Firebase
-                await save_user_data()
-                
-                # Reveal all mines
+                # Show all mines
                 await show_all_mines(update, context, game_owner_id)
                 
                 # Schedule message deletion after 5 seconds
@@ -1805,114 +1899,29 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Clean up
                 del active_games[game_owner_id]
-                return
-            
-            # Handle tile click
-            if callback_parts[0] == "tile":
-                position = int(callback_parts[1])
+            else:
+                # Safe tile - reveal it
+                game["revealed_positions"].append(position)
                 
-                # Check if tile already revealed
-                if position in game["revealed_positions"] or position in game["protected_positions"]:
-                    await query.answer("Эта клетка уже открыта!")
-                    game_locks[game_owner_id] = False
-                    return
-                
-                # Check if tile is a mine
-                if position in game["mine_positions"]:
-                    # Проверяем, будет ли мина ядовитой (40% шанс)
-                    is_poisonous = random.randint(1, 100) <= POISONOUS_MINE_CHANCE
+                # Generate board directly
+                try:
+                    status, reply_markup = generate_mines_board(game)
                     
-                    # Check if danger radar might explode
-                    if game["has_radar"]:
-                        # Get explode chance based on level
-                        explode_chance = ITEM_EFFECTS["danger_radar"][game["radar_level"]]["explode"]
-                        
-                        if random.random() < explode_chance:
-                            # Radar explodes
-                            if "danger_radar" in user_inventories[game_owner_id]:
-                                user_inventories[game_owner_id]["danger_radar"] -= 1
-                            
-                            await query.answer("📡 Ваш радар опасности самоуничтожился!", show_alert=True)
-                            game["has_radar"] = False
-                    
-                    # Check if user has active aura
-                    if game["has_aura"] and not game["aura_used"]:
-                        # Get aura protection chance based on level
-                        aura_chance = ITEM_EFFECTS["defending_aura"][game["aura_level"]]
-                        
-                        if random.random() < aura_chance:  # Chance to activate
-                            # Aura activation - save the player
-                            game["aura_used"] = True
-                            game["protected_positions"].append(position)
-                            
-                            # Use up the aura
-                            if "defending_aura" in user_inventories[game_owner_id]:
-                                user_inventories[game_owner_id]["defending_aura"] -= 1
-                            
-                            # Reshuffle the mines
-                            remaining_positions = [p for p in range(TOTAL_TILES) if p not in game["revealed_positions"] and p not in game["protected_positions"]]
-                            game["mine_positions"] = random.sample(remaining_positions, min(game["num_mines"], len(remaining_positions)))
-                            
-                            # Update the game board
-                            await query.answer("🛡️ Защитная аура сработала! Вы спаслись от мины!", show_alert=True)
-                            await send_game_board(update, context, game_owner_id)
-                            return
-                    
-                    # Если мина ядовитая, снимаем с баланса
-                    if is_poisonous:
-                        # Добавляем в список ядовитых мин
-                        game["poisonous_mines"].append(position)
-                        
-                        # Снимаем с баланса пользователя (баланс / 1.5)
-                        if user_balances[game_owner_id] > 0:
-                            penalty = int(user_balances[game_owner_id] / 1.5)
-                            # Убеждаемся, что баланс не станет отрицательным
-                            if penalty > user_balances[game_owner_id]:
-                                penalty = user_balances[game_owner_id]
-                            user_balances[game_owner_id] -= penalty
-                            
-                            # Сохраняем в Firebase
-                            await save_user_data()
-                            
-                            # Сообщаем пользователю о потере средств
-                            await query.answer(f"☠️ Вы попали на ЯДОВИТУЮ мину! Потеряно {penalty} ktn$", show_alert=True)
-                    
-                    # Game over - user hit a mine
-                    game["game_over"] = True
-                    
-                    # Show all mines
-                    await show_all_mines(update, context, game_owner_id)
-                    
-                    # Schedule message deletion after 5 seconds
-                    asyncio.create_task(delete_game_message_after_delay(context, game, 5))
-                    
-                    # Unpin if pinned
-                    if game.get("pinned", False):
-                        try:
-                            await context.bot.unpin_chat_message(
-                                chat_id=game["chat_id"],
-                                message_id=game["message_id"]
-                            )
-                        except Exception:
-                            pass
-                    
-                    # Clean up
-                    del active_games[game_owner_id]
-                else:
-                    # Safe tile - reveal it
-                    game["revealed_positions"].append(position)
-                    
-                    # Update game board
-                    await send_game_board(update, context, game_owner_id)
-        finally:
-            # Снимаем блокировку
-            if game_owner_id in game_locks:
-                game_locks[game_owner_id] = False
+                    await context.bot.edit_message_text(
+                        chat_id=game["chat_id"],
+                        message_id=game["message_id"],
+                        text=status,
+                        reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    print(f"Error updating board: {e}")
+    
     except Exception as e:
         print(f"Error in handle_button: {e}")
-        # Снимаем блокировку в случае ошибки
-        if 'game_owner_id' in locals() and game_owner_id in game_locks:
-            game_locks[game_owner_id] = False
+        try:
+            await query.answer("Произошла ошибка при обработке нажатия кнопки", show_alert=True)
+        except:
+            pass
 
 async def delete_game_message_after_delay(context, game, delay_seconds):
     await asyncio.sleep(delay_seconds)
@@ -2879,6 +2888,7 @@ def main():
                 user_inventories = load_user_data_sync.get("user_inventories", {})
                 item_experience = load_user_data_sync.get("item_experience", {})
                 item_levels = load_user_data_sync.get("item_levels", {})
+                
                 
                 # Конвертируем строковые ключи в числовые для user_id
                 user_balances = {int(k): v for k, v in user_balances.items()}
