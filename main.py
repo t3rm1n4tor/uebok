@@ -1633,10 +1633,10 @@ def generate_mines_board(game):
     
     # Add cashout button if at least 3 safe tiles revealed
     
-	if revealed_count >= 3 and not game["game_over"]:
-	    keyboard.append([
-	        InlineKeyboardButton(f"💰 ЗАБРАТЬ ВЫИГРЫШ ({multiplier}x) 💰", callback_data=f"cashout_win_{game['user_id']}")
-	    ])
+    if revealed_count >= 3 and not game["game_over"]:
+       keyboard.append([
+	  InlineKeyboardButton(f"💰 ЗАБРАТЬ ВЫИГРЫШ ({multiplier}x) 💰", callback_data=f"cashout_win_{game['user_id']}")
+       ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
