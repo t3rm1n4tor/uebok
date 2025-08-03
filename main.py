@@ -324,7 +324,20 @@ async def check_and_start_events(context: ContextTypes.DEFAULT_TYPE):
             
             # Уведомляем о завершении ивента через бота
             try:
-                for chat_id in set(game["chat_id"] for game in active_games.values()):
+                chat_ids = []
+                for game in active_games.values():
+                    if "chat_id" in game and game["chat_id"] not in chat_ids:
+                        chat_ids.append(game["chat_id"])
+                
+                for game in blackjack_games.values():
+                    if "chat_id" in game and game["chat_id"] not in chat_ids:
+                        chat_ids.append(game["chat_id"])
+                
+                for game in crash_games.values():
+                    if "chat_id" in game and game["chat_id"] not in chat_ids:
+                        chat_ids.append(game["chat_id"])
+                
+                for chat_id in chat_ids:
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text="⏰ Событие 'Бустер опыта x2' закончилось! Ждем новых ивентов!"
@@ -345,7 +358,20 @@ async def check_and_start_events(context: ContextTypes.DEFAULT_TYPE):
             
             # Уведомляем о запуске ивента через бота
             try:
-                for chat_id in set(game["chat_id"] for game in active_games.values()):
+                chat_ids = []
+                for game in active_games.values():
+                    if "chat_id" in game and game["chat_id"] not in chat_ids:
+                        chat_ids.append(game["chat_id"])
+                
+                for game in blackjack_games.values():
+                    if "chat_id" in game and game["chat_id"] not in chat_ids:
+                        chat_ids.append(game["chat_id"])
+                
+                for game in crash_games.values():
+                    if "chat_id" in game and game["chat_id"] not in chat_ids:
+                        chat_ids.append(game["chat_id"])
+                
+                for chat_id in chat_ids:
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=f"🎉 Началось событие 'Бустер опыта x2'!\n\n"
@@ -3246,22 +3272,15 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
     except Exception as e:
         print(f"Error in handle_blackjack_button: {e}")
 
-async def initialize_bot(context: ContextTypes.DEFAULT_TYPE):
+async def event_checker_job(context: ContextTypes.DEFAULT_TYPE):
+    """Проверяет ивенты и отправляет уведомления"""
+    await check_and_start_events(context)
+
+async def initialize_bot():
     """Initializes the bot by loading data from Firebase"""
     if firebase_enabled:
         print("Загрузка данных из Firebase...")
         await load_user_data()
-
-# Функция для запуска проверки ивентов
-async def event_checker(context: ContextTypes.DEFAULT_TYPE):
-    """Запускает проверку и обработку ивентов"""
-    await check_and_start_events(context)
-    
-    # Запланировать следующую проверку через минуту
-    context.application.create_task(
-        event_checker(context),
-        when=60  # Проверять каждую минуту
-    )
 
 def main():
     try:
@@ -3323,8 +3342,9 @@ def main():
             except Exception as e:
                 print(f"❌ Ошибка при загрузке данных из Firebase при старте: {e}")
         
-        # Запускаем проверку ивентов
-        app.create_task(event_checker(app.bot))
+        # Настраиваем планировщик задач для проверки ивентов
+        job_queue = app.job_queue
+        job_queue.run_repeating(event_checker_job, interval=60, first=10)
         
         # Start the Bot
         print("Бот запущен!")
