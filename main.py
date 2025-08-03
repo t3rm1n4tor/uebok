@@ -13,18 +13,29 @@ from telegram.ext import (
 )
 from datetime import datetime, timedelta
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, db
 
 # Firebase инициализация
 try:
     cr = credentials.Certificate("creds/katanawtfbot-firebase-adminsdk-fbsvc-ec711b11db.json")
-    firebase_admin.initialize_app(cr)
-    db = firestore.client()
+    firebase_admin.initialize_app(cr, {
+        "databaseURL": "https://katanawtfbot-default-rtdb.firebaseio.com/"
+    })
+
     firebase_enabled = True
-    print("Firebase подключен успешно!")
+    print("✅ Firebase Realtime Database подключен успешно!")
+
+    # Запись тестовых данных
+    ref = db.reference("/katana")
+    ref.set({"status": "online"})
+
+    # Получение данных
+    data = ref.get()
+    print("📦 Данные из Firebase:", data)
+
 except Exception as e:
     firebase_enabled = False
-    print(f"Ошибка подключения Firebase: {e}")
+    print(f"❌ Ошибка подключения Firebase: {e}")
 
 # Store user data in memory
 user_balances = {}
@@ -252,7 +263,7 @@ async def load_user_data():
             item_experience = {int(k): v for k, v in item_experience.items()}
             item_levels = {int(k): v for k, v in item_levels.items()}
             
-            print("Данные пользователей успешно загруженыы из Firebase")
+            print("Данные пользователей успешно загружены из Firebase")
         else:
             print("Данные пользователей не найдены в Firebase")
     except Exception as e:
