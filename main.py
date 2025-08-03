@@ -2858,7 +2858,7 @@ def main():
         app.add_handler(CallbackQueryHandler(handle_button))
         
         # Initialize bot (load data from Firebase)
-        asyncio.run(initialize_bot())
+        app.job_queue.run_once(initialize_bot, 0)
         
         # Start the Bot
         print("Бот запущен!")
