@@ -1732,66 +1732,83 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         
         # Handle cashout
-        if callback_parts[0] == "cashout":
-            # Calculate win amount with improved multiplier
-            revealed_count = len(game["revealed_positions"])
-            mines_left = game["num_mines"]
-            tiles_left = TOTAL_TILES - revealed_count
-            
-            # Improved multiplier formula
-            if tiles_left > mines_left:
-                # Base multiplier calculation
-                base_multiplier = tiles_left / (tiles_left - mines_left)
-                
-                # Apply bonus for more revealed tiles
-                bonus = revealed_count * 0.15
-                
-                # Apply bonus for more mines (higher risk)
-                mines_bonus = (mines_left / TOTAL_TILES) * 2.0
-                
-                # Special case for almost all tiles revealed
-                if revealed_count >= TOTAL_TILES - mines_left - 1:
-                    bonus *= 2  # Double bonus for high risk plays
-                
-                multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
-            else:
-                multiplier = 1.0
-            
-            win_amount = round(game["bet"] * multiplier)
-            
-            # Update game state
-            game["game_over"] = True
-            game["win"] = True
-            game["win_amount"] = win_amount
-            
-            # Update user balance
-            user_balances[game_owner_id] += win_amount
-            
-            # Add experience to items
-            add_experience(game_owner_id, "mines")
-            
-            # Сохраняем в Firebase
-            await save_user_data()
-            
-            # Reveal all mines
-            await show_all_mines(update, context, game_owner_id)
-            
-            # Schedule message deletion after 5 seconds
-            asyncio.create_task(delete_game_message_after_delay(context, game, 5))
-            
-            # Unpin if pinned
-            if game.get("pinned", False):
-                try:
-                    await context.bot.unpin_chat_message(
-                        chat_id=game["chat_id"],
-                        message_id=game["message_id"]
-                    )
-                except Exception:
-                    pass
-            
-            # Clean up
-            del active_games[game_owner_id]
-            return
+# Исправленная функция обработки кнопки вывода в handle_button
+if callback_parts[0] == "cashout":
+    print(f"Cashout button pressed: {query.data}")  # Добавим для отладки
+    
+    # Calculate win amount with improved multiplier
+    revealed_count = len(game["revealed_positions"])
+    mines_left = game["num_mines"]
+    tiles_left = TOTAL_TILES - revealed_count
+    
+    # Improved multiplier formula
+    if tiles_left > mines_left:
+        base_multiplier = tiles_left / (tiles_left - mines_left)
+        bonus = revealed_count * 0.15
+        mines_bonus = (mines_left / TOTAL_TILES) * 2.0
+        
+        if revealed_count >= TOTAL_TILES - mines_left - 1:
+            bonus *= 2
+        
+        multiplier = round(base_multiplier * (1 + bonus + mines_bonus), 2)
+    else:
+        multiplier = 1.0
+    
+    win_amount = round(game["bet"] * multiplier)
+    
+    # Update game state
+    game["game_over"] = True
+    game["win"] = True
+    game["win_amount"] = win_amount
+    
+    # Update user balance
+    user_balances[game_owner_id] += win_amount
+    
+    # Add experience to items
+    add_experience(game_owner_id, "mines")
+    
+    # Сохраняем в Firebase
+    await save_user_data()
+    
+    # Создаем копию игры, чтобы безопасно использовать её после удаления
+    game_copy = game.copy()
+    
+    # Unpin if pinned
+    if game.get("pinned", False):
+        try:
+            await context.bot.unpin_chat_message(
+                chat_id=game["chat_id"],
+                message_id=game["message_id"]
+            )
+        except Exception:
+            pass
+    
+    # Clean up перед обновлением сообщения
+    del active_games[game_owner_id]
+    
+    # Показываем сообщение о выигрыше напрямую без вызова show_all_mines
+    status = (
+        f"🎉 {game_copy['user_name']} выиграл {win_amount} ktn$! 🎉\n\n"
+        f"💰 Множитель: {multiplier}x\n"
+        f"💵 Ставка: {game_copy['bet']} ktn$\n"
+        f"💎 Выигрыш: {win_amount} ktn$\n\n"
+        f"⏱️ Сообщение будет удалено через 5 секунд"
+    )
+    
+    try:
+        await context.bot.edit_message_text(
+            chat_id=game_copy["chat_id"],
+            message_id=game_copy["message_id"],
+            text=status,
+            reply_markup=None  # Убираем кнопки полностью
+        )
+    except Exception as e:
+        print(f"Error updating win message: {e}")
+    
+    # Schedule message deletion after 5 seconds
+    asyncio.create_task(delete_game_message_after_delay(context, game_copy, 5))
+    
+    return
         
         # Handle tile click
         if callback_parts[0] == "tile":
