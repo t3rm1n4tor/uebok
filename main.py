@@ -53,6 +53,7 @@ blackjack_games = {}  # Track active blackjack games
 crash_games = {}  # Track active crash games
 user_game_stats = {}  # Track user win/loss statistics for rigging
 user_display_names = {}  # Store user display names for top balance
+active_rains = {}  # Хранение активных дождей
 
 # Система ивентов
 active_events = {
@@ -96,7 +97,8 @@ MAX_ITEM_LEVEL = 5  # Maximum level for items
 
 # Case configuration
 CASE_COSTS = {
-    "1": 35  # Bronze case cost
+    "1": 35,  # Bronze case cost
+    "2": 250  # Tools case cost
 }
 
 CASE_PRIZES = {
@@ -104,6 +106,13 @@ CASE_PRIZES = {
         {"emoji": "💎", "value": 45, "chance": 30},
         {"emoji": "💵", "value": 20, "chance": 60},
         {"emoji": "💰", "value": 85, "chance": 10}
+    ],
+    "2": [  # Кейс с инструментами
+        {"emoji": "🛡️", "id": "1", "name": "Защитная аура", "chance": 25},
+        {"emoji": "🪙", "id": "2", "name": "Счастливая монета", "chance": 20},
+        {"emoji": "📡", "id": "3", "name": "Радар опасности", "chance": 15},
+        {"emoji": "🔰", "id": "4", "name": "Анти-краш щит", "chance": 10},
+        {"emoji": "🧪", "id": "5", "name": "Защита от яда", "chance": 30}
     ]
 }
 
@@ -391,26 +400,37 @@ def should_rig_mines(user_id):
     wins = stats.get("mines_wins", 0)
     losses = stats.get("mines_losses", 0)
     
-    # Если у игрока менее 5 игр, не риггаем
-    if wins + losses < 5:
+    # Если у игрока менее 3 игр, не риггаем (было 5)
+    if wins + losses < 3:
         return False
     
-    # Если соотношение побед к общему числу игр больше 0.7 (70% побед), 
-    # то с вероятностью 30% риггаем игру
-    win_ratio = wins / (wins + losses) if wins + losses > 0 else 0
-    if win_ratio > 0.7:
-        return random.random() < 0.3
+    # Если у игрока больше 500 ktn$ на балансе, увеличиваем шанс рига
+    balance_factor = 0
+    if user_id in user_balances:
+        if user_balances[user_id] > 1000:
+            balance_factor = 0.4  # 40% дополнительного шанса рига для богатых игроков
+        elif user_balances[user_id] > 500:
+            balance_factor = 0.2  # 20% дополнительного шанса рига для состоятельных игроков
     
-    return False
+    # Если соотношение побед к общему числу игр больше 0.6 (60% побед), 
+    # то с повышенной вероятностью риггаем игру
+    win_ratio = wins / (wins + losses) if wins + losses > 0 else 0
+    if win_ratio > 0.6:
+        return random.random() < (0.4 + balance_factor)  # было 0.3
+    elif win_ratio > 0.5:
+        return random.random() < (0.2 + balance_factor)
+    
+    # Также небольшой шанс рига даже при обычной статистике
+    return random.random() < (0.1 + balance_factor)
 
 def rig_mines_game(game_state):
     """Модифицирует расположение мин для увеличения вероятности проигрыша"""
-    # Берем первые 3 хода, которые игрок с наибольшей вероятностью сделает
+    # Берем первые 5 ходов, которые игрок с наибольшей вероятностью сделает (было 3)
     # Эти позиции часто выбираются в начале игры (центр и углы)
-    common_first_moves = [12, 0, 4, 20, 24]  # Центр и углы 5x5 сетки
+    common_first_moves = [12, 0, 4, 20, 24, 6, 8, 16, 18]  # Центр, углы и некоторые граничные позиции 5x5 сетки
     
-    # Случайно выбираем несколько из этих позиций и делаем их минами
-    num_mines_to_place = min(2, game_state["num_mines"])
+    # Случайно выбираем больше позиций и делаем их минами
+    num_mines_to_place = min(4, game_state["num_mines"])  # Было 2, увеличиваем до 4
     mines_to_place = random.sample(common_first_moves, num_mines_to_place)
     
     # Добавляем остальные мины случайно
@@ -420,7 +440,330 @@ def rig_mines_game(game_state):
     # Объединяем мины
     game_state["mine_positions"] = mines_to_place + additional_mines
     
+    # Увеличиваем шанс появления ядовитых мин для риггованных игр
+    if game_state["num_mines"] > 3:
+        # Добавляем дополнительные позиции для ядовитых мин
+        poisonous_candidates = [p for p in game_state["mine_positions"] if p in common_first_moves]
+        if poisonous_candidates:
+            game_state["potential_poisonous"] = poisonous_candidates
+    
     return game_state
+
+# Новая команда - раздача дождя из ktn$
+async def rain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    username = update.effective_user.username
+    
+    # Проверяем, есть ли аргументы
+    if not context.args:
+        await update.message.reply_text(
+            "ℹ️ Использование: /rain [сумма]\n\n"
+            "Создайте дождь из ktn$ для других пользователей!\n"
+            "Минимальная сумма: 500 ktn$\n\n"
+            "Пример: /rain 500"
+        )
+        return
+    
+    # Пытаемся получить сумму дождя
+    try:
+        amount = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Ошибка! Сумма должна быть числом."
+        )
+        return
+    
+    # Проверяем минимальную сумму
+    if amount < 500:
+        await update.message.reply_text(
+            "❌ Ошибка! Минимальная сумма для дождя: 500 ktn$."
+        )
+        return
+    
+    # Проверяем, есть ли у пользователя достаточно средств
+    if user_id not in user_balances or user_balances[user_id] < amount:
+        await update.message.reply_text(
+            f"❌ Недостаточно средств для создания дождя!\n\n"
+            f"Ваш баланс: {user_balances.get(user_id, 0)} ktn$\n"
+            f"Требуется: {amount} ktn$"
+        )
+        return
+    
+    # Списываем средства с баланса пользователя
+    user_balances[user_id] -= amount
+    
+    # Создаем новый дождь
+    rain_id = f"rain_{user_id}_{int(time.time())}"
+    active_rains[rain_id] = {
+        "creator_id": user_id,
+        "creator_name": user_name,
+        "creator_username": username,
+        "amount": amount,
+        "participants": [],
+        "max_participants": 100,
+        "created_at": datetime.now(),
+        "starts_at": datetime.now() + timedelta(minutes=2.5),
+        "status": "active"
+    }
+    
+    # Сохраняем в Firebase
+    await save_user_data()
+    
+    # Создаем инлайн кнопку для присоединения к дождю
+    keyboard = [[
+        InlineKeyboardButton(
+            f"💧 Присоединиться (0/{active_rains[rain_id]['max_participants']})",
+            callback_data=f"rain_join_{rain_id}"
+        )
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Отправляем уведомление о дожде всем пользователям
+    sent_to = []
+    
+    # Собираем ID всех активных чатов
+    chat_ids = []
+    
+    # Из активных игр
+    for game in active_games.values():
+        if "chat_id" in game and game["chat_id"] not in chat_ids:
+            chat_ids.append(game["chat_id"])
+    
+    # Из игр блэкджек
+    for game in blackjack_games.values():
+        if "chat_id" in game and game["chat_id"] not in chat_ids:
+            chat_ids.append(game["chat_id"])
+    
+    # Из игр crash
+    for game in crash_games.values():
+        if "chat_id" in game and game["chat_id"] not in chat_ids:
+            chat_ids.append(game["chat_id"])
+    
+    # Из пользователей с балансом (личные чаты)
+    for uid in user_balances.keys():
+        if uid not in sent_to and uid != user_id:  # Не отправляем создателю
+            chat_ids.append(uid)
+    
+    # Отправляем сообщения
+    for chat_id in chat_ids:
+        try:
+            rain_message = await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"💸 @{username} запустил дождь из ktn$!\n\n"
+                     f"💰 Сумма дождя: {amount} ktn$\n"
+                     f"⏱️ Дождь начнется через 2.5 минуты\n"
+                     f"👥 Макс. участников: {active_rains[rain_id]['max_participants']}\n\n"
+                     f"Нажмите на кнопку ниже, чтобы присоединиться к раздаче!",
+                reply_markup=reply_markup
+            )
+            
+            # Запоминаем, кому отправили
+            sent_to.append(chat_id)
+            
+            # Сохраняем ID сообщения для обновления кнопки
+            if "messages" not in active_rains[rain_id]:
+                active_rains[rain_id]["messages"] = []
+            
+            active_rains[rain_id]["messages"].append({
+                "chat_id": chat_id,
+                "message_id": rain_message.message_id
+            })
+            
+        except Exception as e:
+            print(f"Ошибка отправки уведомления о дожде в чат {chat_id}: {e}")
+    
+    # Отправляем подтверждение создателю
+    await update.message.reply_text(
+        f"✅ Вы успешно создали дождь из {amount} ktn$!\n\n"
+        f"⏱️ Дождь начнется через 2.5 минуты\n"
+        f"👥 Макс. участников: {active_rains[rain_id]['max_participants']}\n\n"
+        f"Уведомления отправлены {len(sent_to)} пользователям."
+    )
+    
+    # Запускаем таймер для начала дождя
+    asyncio.create_task(start_rain_after_delay(context, rain_id))
+
+async def start_rain_after_delay(context, rain_id):
+    """Запускает дождь после задержки"""
+    if rain_id not in active_rains:
+        return
+        
+    rain_data = active_rains[rain_id]
+    
+    # Ждем 2.5 минуты
+    await asyncio.sleep(150)  # 2.5 минуты = 150 секунд
+    
+    # Проверяем, существует ли еще дождь
+    if rain_id not in active_rains:
+        return
+    
+    # Обновляем статус дождя
+    rain_data["status"] = "completed"
+    
+    # Если нет участников, возвращаем деньги создателю
+    if not rain_data["participants"]:
+        user_balances[rain_data["creator_id"]] += rain_data["amount"]
+        
+        # Уведомляем создателя
+        try:
+            await context.bot.send_message(
+                chat_id=rain_data["creator_id"],
+                text=f"❌ Никто не присоединился к вашему дождю из {rain_data['amount']} ktn$!\n\n"
+                     f"💰 Средства возвращены на ваш баланс."
+            )
+        except Exception:
+            pass
+            
+        # Обновляем все сообщения о дожде
+        if "messages" in rain_data:
+            for msg in rain_data["messages"]:
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=msg["chat_id"],
+                        message_id=msg["message_id"],
+                        text=f"❌ Дождь от @{rain_data['creator_username']} завершен без участников!\n\n"
+                             f"💰 Сумма дождя: {rain_data['amount']} ktn$\n"
+                             f"👥 Участников: 0/{rain_data['max_participants']}\n\n"
+                             f"Средства возвращены создателю.",
+                        reply_markup=None
+                    )
+                except Exception:
+                    pass
+        
+        # Удаляем дождь
+        del active_rains[rain_id]
+        
+        # Сохраняем в Firebase
+        await save_user_data()
+        
+        return
+    
+    # Распределяем деньги между участниками
+    num_participants = len(rain_data["participants"])
+    amount_per_participant = rain_data["amount"] // num_participants
+    
+    # Убеждаемся, что каждый получит хотя бы 1 ktn$
+    if amount_per_participant < 1:
+        amount_per_participant = 1
+    
+    # Распределяем деньги и отправляем уведомления
+    for participant_id in rain_data["participants"]:
+        # Начисляем деньги
+        if participant_id not in user_balances:
+            user_balances[participant_id] = 0
+        
+        user_balances[participant_id] += amount_per_participant
+        
+        # Отправляем уведомление
+        try:
+            await context.bot.send_message(
+                chat_id=participant_id,
+                text=f"💸 Вам зачислили {amount_per_participant} ktn$ из дождя!\n\n"
+                     f"👏 Поблагодарите @{rain_data['creator_username']} за щедрость!\n\n"
+                     f"💰 Ваш новый баланс: {user_balances[participant_id]} ktn$"
+            )
+        except Exception:
+            pass
+    
+    # Уведомляем создателя
+    try:
+        await context.bot.send_message(
+            chat_id=rain_data["creator_id"],
+            text=f"✅ Ваш дождь успешно завершен!\n\n"
+                 f"💰 Сумма дождя: {rain_data['amount']} ktn$\n"
+                 f"👥 Участников: {num_participants}/{rain_data['max_participants']}\n"
+                 f"💸 Каждый получил: {amount_per_participant} ktn$"
+        )
+    except Exception:
+        pass
+    
+    # Обновляем все сообщения о дожде
+    if "messages" in rain_data:
+        for msg in rain_data["messages"]:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=msg["chat_id"],
+                    message_id=msg["message_id"],
+                    text=f"✅ Дождь от @{rain_data['creator_username']} завершен!\n\n"
+                         f"💰 Сумма дождя: {rain_data['amount']} ktn$\n"
+                         f"👥 Участников: {num_participants}/{rain_data['max_participants']}\n"
+                         f"💸 Каждый получил: {amount_per_participant} ktn$",
+                    reply_markup=None
+                )
+            except Exception:
+                pass
+    
+    # Удаляем дождь
+    del active_rains[rain_id]
+    
+    # Сохраняем в Firebase
+    await save_user_data()
+
+async def handle_rain_button(update: Update, context, query, callback_parts):
+    """Обрабатывает нажатие кнопки для присоединения к дождю"""
+    try:
+        action = callback_parts[1]
+        rain_id = callback_parts[2]
+        user_id = update.effective_user.id
+        
+        # Проверяем, существует ли дождь
+        if rain_id not in active_rains:
+            await query.answer("❌ Этот дождь уже завершен или не существует.", show_alert=True)
+            return
+        
+        rain_data = active_rains[rain_id]
+        
+        # Проверяем статус дождя
+        if rain_data["status"] != "active":
+            await query.answer("❌ Этот дождь уже завершен.", show_alert=True)
+            return
+        
+        # Обрабатываем присоединение к дождю
+        if action == "join":
+            # Проверяем, не является ли пользователь создателем дождя
+            if user_id == rain_data["creator_id"]:
+                await query.answer("❌ Вы не можете присоединиться к своему собственному дождю.", show_alert=True)
+                return
+            
+            # Проверяем, не присоединился ли пользователь уже
+            if user_id in rain_data["participants"]:
+                await query.answer("✅ Вы уже присоединились к этому дождю.", show_alert=True)
+                return
+            
+            # Проверяем, не достигнуто ли максимальное количество участников
+            if len(rain_data["participants"]) >= rain_data["max_participants"]:
+                await query.answer("❌ Достигнуто максимальное количество участников.", show_alert=True)
+                return
+            
+            # Добавляем пользователя в список участников
+            rain_data["participants"].append(user_id)
+            
+            # Обновляем все сообщения с новым числом участников
+            if "messages" in rain_data:
+                for msg in rain_data["messages"]:
+                    try:
+                        keyboard = [[
+                            InlineKeyboardButton(
+                                f"💧 Присоединиться ({len(rain_data['participants'])}/{rain_data['max_participants']})",
+                                callback_data=f"rain_join_{rain_id}"
+                            )
+                        ]]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await context.bot.edit_message_reply_markup(
+                            chat_id=msg["chat_id"],
+                            message_id=msg["message_id"],
+                            reply_markup=reply_markup
+                        )
+                    except Exception:
+                        pass
+            
+            await query.answer("✅ Вы успешно присоединились к дождю!", show_alert=True)
+    
+    except Exception as e:
+        print(f"Ошибка в обработке кнопки дождя: {e}")
+        await query.answer("❌ Произошла ошибка при обработке запроса.", show_alert=True)
 
 # Новая команда для администратора - установка баланса
 async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -527,11 +870,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "▫️ /farm - Фармить ktn$ (с растущей наградой)\n"
         text += "▫️ /upgrade_farm [режим] - Улучшить ферму\n"
         text += "▫️ /upgrade_inv [ID] - Улучшить предмет в инвентаре\n"
-        text += "▫️ /opencase [1-3] - Открыть кейс с призами\n"
+        text += "▫️ /opencase [1-2] - Открыть кейс с призами\n"
         text += "▫️ /shop [buy/stock] [ID] - Магазин предметов\n"
         text += "▫️ /inventory - Посмотреть свой инвентарь\n"
         text += "▫️ /balance - Проверить баланс\n"
         text += "▫️ /top_bal - Топ игроков по балансу\n"
+        text += "▫️ /rain [сумма] - Создать дождь из ktn$\n"
         text += "▫️ /reset - Сбросить игру, если возникли проблемы\n\n"
         text += "🎯 Удачной игры!"
         
@@ -1389,7 +1733,8 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "ℹ️ Использование: /opencase [номер_кейса]\n\n"
             "Доступные кейсы:\n"
-            "1 - Бронзовый кейс (35 ktn$)"
+            "1 - Бронзовый кейс (35 ktn$)\n"
+            "2 - Кейс с инструментами (250 ktn$)"
         )
         return
     
@@ -1400,7 +1745,8 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ Ошибка! Указан неверный тип кейса.\n\n"
             "Доступные кейсы:\n"
-            "1 - Бронзовый кейс (35 ktn$)"
+            "1 - Бронзовый кейс (35 ktn$)\n"
+            "2 - Кейс с инструментами (250 ktn$)"
         )
         return
     
@@ -1423,7 +1769,8 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Send initial message
     case_names = {
-        "1": "Бронзовый"
+        "1": "Бронзовый",
+        "2": "Кейс с инструментами"
     }
     
     initial_message = await update.message.reply_text(
@@ -1446,13 +1793,19 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await asyncio.sleep(delay)
         try:
+            # Для кейса с предметами показываем название предмета
+            if case_type == "2":
+                animation_text = f"⏳ Выпадает: {random_prize['emoji']} {random_prize['name']}"
+            else:
+                animation_text = f"⏳ Выпадает: {random_prize['emoji']} ({random_prize['value']} ktn$)"
+                
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=initial_message.message_id,
                 text=f"🎁 Открываем {case_names[case_type]} кейс...\n\n"
                      f"💰 Стоимость: {case_cost} ktn$\n"
                      f"👤 Игрок: {user_name}\n\n"
-                     f"⏳ Выпадает: {random_prize['emoji']} ({random_prize['value']} ktn$)"
+                     f"{animation_text}"
             )
         except Exception:
             pass
@@ -1468,24 +1821,67 @@ async def opencase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             final_prize = prize
             break
     
-    # Add the prize to user's balance
-    user_balances[user_id] += final_prize["value"]
+    # Process prize based on case type
+    if case_type == "1":  # Бронзовый кейс с деньгами
+        # Add the prize to user's balance
+        user_balances[user_id] += final_prize["value"]
+        
+        # Сохраняем в Firebase
+        await save_user_data()
+        
+        # Final message
+        profit = final_prize["value"] - case_cost
+        profit_str = f"+{profit}" if profit >= 0 else f"{profit}"
+        
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=initial_message.message_id,
+            text=f"🎁 {case_names[case_type]} кейс открыт!\n\n"
+                 f"🏆 Вы выиграли: {final_prize['emoji']} {final_prize['value']} ktn$\n"
+                 f"📊 Профит: {profit_str} ktn$\n\n"
+                 f"💰 Ваш баланс: {user_balances[user_id]} ktn$"
+        )
     
-    # Сохраняем в Firebase
-    await save_user_data()
-    
-    # Final message
-    profit = final_prize["value"] - case_cost
-    profit_str = f"+{profit}" if profit >= 0 else f"{profit}"
-    
-    await context.bot.edit_message_text(
-        chat_id=update.effective_chat.id,
-        message_id=initial_message.message_id,
-        text=f"🎁 {case_names[case_type]} кейс открыт!\n\n"
-             f"🏆 Вы выиграли: {final_prize['emoji']} {final_prize['value']} ktn$\n"
-             f"📊 Профит: {profit_str} ktn$\n\n"
-             f"💰 Ваш баланс: {user_balances[user_id]} ktn$"
-    )
+    else:  # Кейс с инструментами
+        # Получаем ID предмета
+        item_id = final_prize["id"]
+        
+        # Проверяем инициализацию инвентаря
+        if user_id not in user_inventories:
+            user_inventories[user_id] = {}
+            
+        # Convert item ID to internal key
+        internal_key = ITEM_ID_MAP[item_id]
+        
+        if internal_key not in user_inventories[user_id]:
+            user_inventories[user_id][internal_key] = 0
+            
+        # Initialize experience and level if first acquisition
+        if internal_key not in item_experience.get(user_id, {}):
+            if user_id not in item_experience:
+                item_experience[user_id] = {}
+            item_experience[user_id][internal_key] = 0
+            
+        if internal_key not in item_levels.get(user_id, {}):
+            if user_id not in item_levels:
+                item_levels[user_id] = {}
+            item_levels[user_id][internal_key] = 1
+        
+        # Добавляем предмет в инвентарь
+        user_inventories[user_id][internal_key] += 1
+        
+        # Сохраняем в Firebase
+        await save_user_data()
+        
+        # Сообщение о выигрыше предмета
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=initial_message.message_id,
+            text=f"🎁 {case_names[case_type]} кейс открыт!\n\n"
+                 f"🏆 Вы выиграли: {final_prize['emoji']} {final_prize['name']}\n"
+                 f"📦 У вас в инвентаре: {user_inventories[user_id][internal_key]} шт.\n\n"
+                 f"💰 Ваш баланс: {user_balances[user_id]} ktn$"
+        )
 
 async def reset_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1944,6 +2340,11 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Handle crash callbacks
         if callback_parts[0] == "crash":
             await handle_crash_button(update, context, query, callback_parts)
+            return
+            
+        # Handle rain callbacks
+        if callback_parts[0] == "rain":
+            await handle_rain_button(update, context, query, callback_parts)
             return
         
         # Extract user_id from callback data for mines game
@@ -3305,6 +3706,7 @@ def main():
         app.add_handler(CommandHandler("reset", reset_game))
         app.add_handler(CommandHandler("cleanup", manual_cleanup))  # Admin command for manual cleanup
         app.add_handler(CommandHandler("set_bal", set_balance))     # Admin command for setting balance
+        app.add_handler(CommandHandler("rain", rain))               # Command for rain
         app.add_handler(CallbackQueryHandler(handle_button))
         
         # Load data immediately before starting
