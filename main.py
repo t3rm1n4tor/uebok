@@ -252,7 +252,7 @@ async def load_user_data():
             item_experience = {int(k): v for k, v in item_experience.items()}
             item_levels = {int(k): v for k, v in item_levels.items()}
             
-            print("Данные пользователей успешно загружены из Firebase")
+            print("Данные пользователей успешно загруженыы из Firebase")
         else:
             print("Данные пользователей не найдены в Firebase")
     except Exception as e:
