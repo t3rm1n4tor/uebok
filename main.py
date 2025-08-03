@@ -1501,6 +1501,9 @@ async def mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     active_games[user_id] = game_state
     
+    # Initialize lock
+    game_locks[user_id] = False
+    
     # Create and send the game board
     await send_game_board(update, context, user_id)
 
@@ -1736,6 +1739,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Check if game is over
             if game["game_over"]:
                 await query.answer("Эта игра уже завершена!", show_alert=True)
+                game_locks[game_owner_id] = False
                 return
             
             # Answer the callback query to stop loading indicator
@@ -1810,6 +1814,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Check if tile already revealed
                 if position in game["revealed_positions"] or position in game["protected_positions"]:
                     await query.answer("Эта клетка уже открыта!")
+                    game_locks[game_owner_id] = False
                     return
                 
                 # Check if tile is a mine
@@ -1901,7 +1906,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await send_game_board(update, context, game_owner_id)
         finally:
             # Снимаем блокировку
-            game_locks[game_owner_id] = False
+            if game_owner_id in game_locks:
+                game_locks[game_owner_id] = False
     except Exception as e:
         print(f"Error in handle_button: {e}")
         # Снимаем блокировку в случае ошибки
@@ -2828,7 +2834,8 @@ async def handle_blackjack_button(update: Update, context, query, callback_parts
     except Exception as e:
         print(f"Error in handle_blackjack_button: {e}")
 
-async def initialize_bot():
+async def initialize_bot(context: ContextTypes.DEFAULT_TYPE):
+    """Initializes the bot by loading data from Firebase"""
     if firebase_enabled:
         print("Загрузка данных из Firebase...")
         await load_user_data()
@@ -2857,8 +2864,32 @@ def main():
         app.add_handler(CommandHandler("set_bal", set_balance))     # Admin command for setting balance
         app.add_handler(CallbackQueryHandler(handle_button))
         
-        # Initialize bot (load data from Firebase)
-        app.job_queue.run_once(initialize_bot, 0)
+        # Load data immediately before starting
+        if firebase_enabled:
+            load_user_data_sync = db.reference("/user_data").get()
+            if load_user_data_sync:
+                # Обновляем глобальные переменные
+                global user_balances, farm_values, max_farm_values
+                global farm_fail_chances, user_inventories, item_experience, item_levels
+                
+                user_balances = load_user_data_sync.get("user_balances", {})
+                farm_values = load_user_data_sync.get("farm_values", {})
+                max_farm_values = load_user_data_sync.get("max_farm_values", {})
+                farm_fail_chances = load_user_data_sync.get("farm_fail_chances", {})
+                user_inventories = load_user_data_sync.get("user_inventories", {})
+                item_experience = load_user_data_sync.get("item_experience", {})
+                item_levels = load_user_data_sync.get("item_levels", {})
+                
+                # Конвертируем строковые ключи в числовые для user_id
+                user_balances = {int(k): v for k, v in user_balances.items()}
+                farm_values = {int(k): v for k, v in farm_values.items()}
+                max_farm_values = {int(k): v for k, v in max_farm_values.items()}
+                farm_fail_chances = {int(k): v for k, v in farm_fail_chances.items()}
+                user_inventories = {int(k): v for k, v in user_inventories.items()}
+                item_experience = {int(k): v for k, v in item_experience.items()}
+                item_levels = {int(k): v for k, v in item_levels.items()}
+                
+                print("✅ Данные пользователей успешно загружены из Firebase")
         
         # Start the Bot
         print("Бот запущен!")
